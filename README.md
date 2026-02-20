@@ -30,7 +30,7 @@ conda activate sgeviz
 
 ### 3. Install the package
 
-**Python 3.9 or higher is required.**
+**Python 3.9 or higher is required** (the conda example above uses 3.11; any 3.9+ version works).
 
 ```bash
 pip install -e .
@@ -149,6 +149,8 @@ All files are written to `output_dir` with the gene name as a prefix.
 ---
 
 ## ClinVar file format
+
+> **Note:** The pipeline currently supports ClinVar annotations for **SNVs only**. 3bp deletion variants are not matched against ClinVar entries.
 
 The ClinVar input file should be the tab-delimited tabular download from [ClinVar](https://www.ncbi.nlm.nih.gov/clinvar/). The pipeline requires these columns:
 
