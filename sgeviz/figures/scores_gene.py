@@ -13,6 +13,7 @@ def make_plot(df: pd.DataFrame, thresholds: list, gene: str = "") -> alt.Chart:
     """
     alt.data_transformers.disable_max_rows()
 
+    n = len(df)
     df = df.copy()
     df["exon"] = df["exon"].transform(lambda x: "Exon " + x.split("_")[1][1:])
     df.loc[df["var_type"] == "snv", "var_type"] = "SNV"
@@ -70,7 +71,11 @@ def make_plot(df: pd.DataFrame, thresholds: list, gene: str = "") -> alt.Chart:
     return (
         alt.layer(chart, nf_line, func_line)
         .facet(
-            facet=alt.Facet("exon:N", sort=exon_order, title=gene),
+            facet=alt.Facet(
+                "exon:N",
+                sort=exon_order,
+                title=f"{gene + ' ' if gene else ''}(n = {n})",
+            ),
             columns=2,
         )
         .resolve_scale(x="independent")

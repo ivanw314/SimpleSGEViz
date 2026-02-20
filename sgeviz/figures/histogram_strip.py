@@ -21,7 +21,7 @@ def _threshold_rules(thresholds: list):
     return nf_line, func_line
 
 
-def make_figures(df: pd.DataFrame, thresholds: list):
+def make_figures(df: pd.DataFrame, thresholds: list, gene: str = ""):
     """Build histogram and strip plot charts.
 
     Returns:
@@ -66,7 +66,8 @@ def make_figures(df: pd.DataFrame, thresholds: list):
         width=800,
         height=200,
         title=alt.TitleParams(
-            text=f"Distribution of SGE Scores (n = {n})", fontSize=22
+            text=f"Distribution of SGE Scores{' (' + gene + ')' if gene else ''} (n = {n})",
+            fontSize=22,
         ),
     ).interactive()
 

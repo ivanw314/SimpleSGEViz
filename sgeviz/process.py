@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 
@@ -61,6 +62,82 @@ def _read_del_scores(path: Path) -> pd.DataFrame:
     df["pos_id"] = df["start"].astype(str) + "-" + df["end"].astype(str)
     df = df.astype({"pos": int, "start": int, "end": int})
     return df
+
+
+def load_allele_freqs(files: dict, scores_df: pd.DataFrame):
+    """Load gnomAD and/or Regeneron allele frequency files and merge with scores.
+
+    Both CSV and Excel formats are supported. Files are detected by the optional
+    'gnomad' and 'regeneron' keys in the files dict (set by find_genes).
+
+    Returns a combined long-form dataframe with columns including 'Allele Frequency',
+    'log_AF', and 'dataset', or None if neither file is present.
+    """
+    gnomad_path = files.get("gnomad")
+    regeneron_path = files.get("regeneron")
+
+    if gnomad_path is None and regeneron_path is None:
+        return None
+
+    # SNV scores only — deletions have no gnomAD/Regeneron entries
+    snv_scores = scores_df.loc[scores_df["var_type"] == "snv"].copy()
+
+    dfs = []
+
+    if gnomad_path is not None:
+        gnomad_df = _read_gnomad(gnomad_path)
+        merged = pd.merge(snv_scores, gnomad_df, on="pos_id", how="inner")
+        merged["dataset"] = "gnomAD"
+        merged = merged.rename(columns={"gnomad_af": "Allele Frequency"})
+        dfs.append(merged)
+        print(f"  gnomAD: {len(merged)} variants with allele frequency data")
+
+    if regeneron_path is not None:
+        reg_df = _read_regeneron(regeneron_path)
+        merged = pd.merge(snv_scores, reg_df, on="pos_id", how="inner")
+        merged["dataset"] = "Regeneron"
+        merged = merged.rename(columns={"regeneron_maf": "Allele Frequency"})
+        dfs.append(merged)
+        print(f"  Regeneron: {len(merged)} variants with allele frequency data")
+
+    combined = pd.concat(dfs, ignore_index=True)
+    combined["log_AF"] = np.log10(combined["Allele Frequency"])
+    return combined
+
+
+def _read_file(path: Path) -> pd.DataFrame:
+    """Read CSV or Excel file based on extension."""
+    if path.suffix == ".csv":
+        return pd.read_csv(path)
+    return pd.read_excel(path)
+
+
+def _read_gnomad(path: Path) -> pd.DataFrame:
+    """Read gnomAD allele frequency file and return pos_id + gnomad_af columns.
+
+    Supports gnomAD ID format: '2-214728604-T-A' -> pos_id '214728604:A'
+    """
+    df = _read_file(path)
+    df = df[["gnomAD ID", "Allele Frequency"]].copy()
+    df["pos_id"] = df["gnomAD ID"].transform(
+        lambda x: x.split("-")[1] + ":" + x.split("-")[3]
+    )
+    df = df.rename(columns={"Allele Frequency": "gnomad_af"})
+    return df[["pos_id", "gnomad_af"]]
+
+
+def _read_regeneron(path: Path) -> pd.DataFrame:
+    """Read Regeneron allele frequency file and return pos_id + regeneron_maf columns.
+
+    Supports Variant format: '2:214728582:C:G' -> pos_id '214728582:G'
+    """
+    df = _read_file(path)
+    df = df[["Variant", "AAF"]].copy()
+    df = df.rename(columns={"AAF": "regeneron_maf", "Variant": "pos_id"})
+    df["pos_id"] = df["pos_id"].transform(
+        lambda x: x.split(":")[1] + ":" + x.split(":")[3]
+    )
+    return df[["pos_id", "regeneron_maf"]]
 
 
 def _rename_consequences(df: pd.DataFrame) -> pd.DataFrame:

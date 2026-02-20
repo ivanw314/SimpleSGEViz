@@ -46,13 +46,15 @@ def compute_correlations(counts_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
-def make_heatmap(df: pd.DataFrame) -> alt.Chart:
+def make_heatmap(df: pd.DataFrame, gene: str = "") -> alt.Chart:
     """Generate Pearson r heatmap across SGE targets and replicate comparisons."""
     targets = natsorted(df["Targets"].unique().tolist())
 
+    title = f"Correlation of Replicates{' (' + gene + ')' if gene else ''}"
+
     base = alt.Chart(
         df,
-        title=alt.TitleParams(text="Correlation of Replicates", fontSize=32),
+        title=alt.TitleParams(text=title, fontSize=32),
     ).encode(
         x=alt.X(
             "Tests:N",

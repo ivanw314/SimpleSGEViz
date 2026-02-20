@@ -30,6 +30,10 @@ def find_genes(input_dir: Path) -> dict:
             )
         return matches[0]
 
+    def find_optional(pattern):
+        matches = list(input_dir.glob(pattern))
+        return matches[0] if len(matches) == 1 else None
+
     genes = {}
     for allscores_path in allscores_files:
         # e.g. '20260129_RAD51Dallscores' -> 'RAD51D'
@@ -39,6 +43,9 @@ def find_genes(input_dir: Path) -> dict:
             "model_params": find_one(f"*{gene}modelparams.tsv"),
             "snv_counts": find_one(f"*{gene}snvcounts.tsv"),
             "del_counts": find_one(f"*{gene}delcounts.tsv"),
+            # Optional allele frequency files (CSV or Excel)
+            "gnomad": find_optional(f"*{gene}*gnomAD*"),
+            "regeneron": find_optional(f"*{gene}*Regeneron*"),
         }
 
     return genes
