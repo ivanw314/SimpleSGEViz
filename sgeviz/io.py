@@ -98,3 +98,16 @@ def save_figure(chart: alt.Chart, path: Path):
     """
     chart.save(str(path))
     print(f"  Saved: {path.name}")
+
+
+def save_excel(sheets: dict, path: Path):
+    """Write a multi-sheet Excel workbook. Requires openpyxl.
+
+    Args:
+        sheets: Dict mapping sheet name -> DataFrame (insertion order preserved).
+        path: Output path (.xlsx).
+    """
+    with pd.ExcelWriter(str(path), engine="openpyxl") as writer:
+        for sheet_name, df in sheets.items():
+            df.to_excel(writer, sheet_name=sheet_name, index=False)
+    print(f"  Saved: {path.name}")

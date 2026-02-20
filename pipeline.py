@@ -1,7 +1,7 @@
 """SGE Visualization Pipeline
 
 Usage:
-    python pipeline.py <input_dir> <output_dir> [--format html|png|svg]
+    python pipeline.py <input_dir> <output_dir> [--format html|png|svg] [--excel]
 
 The input directory must contain:
     *allscores.tsv      SNV + deletion fitness scores (combined file)
@@ -21,13 +21,17 @@ Outputs (saved to output_dir):
     {gene}_clinvar_strip          ClinVar classification strip plot (if *{gene}*ClinVar*SNV* file present)
     {gene}_clinvar_roc            ROC curve for SGE score B/LB vs P/LP classification (if ClinVar file present)
     {gene}_maf_vs_score           Allele frequency vs. score heatmap (if AF files present)
+    {gene}_data.xlsx              Multi-sheet Excel workbook (if --excel flag is set)
 
 PNG and SVG output require vl-convert-python (pip install vl-convert-python).
+Excel output requires openpyxl (pip install openpyxl).
 """
 
 import argparse
 import sys
 from pathlib import Path
+
+import pandas as pd
 
 from sgeviz import io, process
 from sgeviz.figures import aa_heatmap, clinvar_strip, correlation, histogram_strip, maf_score, scores_gene
@@ -53,6 +57,14 @@ def parse_args():
         default="png",
         help="Output format for figures (default: html). "
              "PNG/SVG require vl-convert-python.",
+    )
+    parser.add_argument(
+        "--excel",
+        action="store_true",
+        default=False,
+        help="Also write a multi-sheet Excel workbook ({gene}_annotated_data.xlsx) "
+             "containing scores, thresholds, counts, and any optional datasets. "
+             "Requires openpyxl.",
     )
     return parser.parse_args()
 
@@ -130,6 +142,45 @@ def main():
             )
         else:
             print(f"[{gene}] No allele frequency files found, skipping MAF figure.")
+
+        if args.excel:
+            print(f"[{gene}] Writing Excel workbook...")
+            thresh_df = pd.DataFrame({
+                "non_functional_threshold": [thresholds[0]],
+                "functional_threshold": [thresholds[1]],
+            })
+
+            # Build merged scores sheet: left-join optional annotations by pos_id
+            merged_scores = scores_df.copy()
+            if clinvar_df is not None:
+                merged_scores = pd.merge(
+                    merged_scores,
+                    clinvar_df[["pos_id", "Germline classification"]],
+                    on="pos_id",
+                    how="left",
+                )
+            if maf_df is not None:
+                af_wide = (
+                    maf_df[["pos_id", "dataset", "Allele Frequency"]]
+                    .pivot_table(
+                        index="pos_id",
+                        columns="dataset",
+                        values="Allele Frequency",
+                        aggfunc="first",
+                    )
+                    .reset_index()
+                )
+                af_wide.columns.name = None
+                af_wide = af_wide.rename(columns={
+                    "gnomAD": "gnomad_af",
+                    "Regeneron": "regeneron_af",
+                })
+                merged_scores = pd.merge(merged_scores, af_wide, on="pos_id", how="left")
+
+            io.save_excel(
+                {"scores": merged_scores, "thresholds": thresh_df, "counts": counts_df},
+                args.output_dir / f"{gene}_data.xlsx",
+            )
 
     print(f"\nDone. Figures saved to: {args.output_dir}")
 
