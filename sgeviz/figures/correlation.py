@@ -3,27 +3,41 @@ import pandas as pd
 from natsort import natsorted
 
 
-_COMBOS = [
-    ("D05 R1", "D05 R2"),
-    ("D05 R1", "D05 R3"),
-    ("D05 R2", "D05 R3"),
-    ("D13 R1", "D13 R2"),
-    ("D13 R1", "D13 R3"),
-    ("D13 R2", "D13 R3"),
-]
+_DAYS = ["D05", "D13", "D17"]
+_REPS = ["R1", "R2", "R3"]
+
+
+def _build_combos(columns: list) -> tuple[list, list]:
+    """Return (rep_cols, combos) based on which day columns are present."""
+    rep_cols = [
+        f"{day} {rep}"
+        for day in _DAYS
+        for rep in _REPS
+        if f"{day} {rep}" in columns
+    ]
+    combos = [
+        (col1, col2)
+        for i, col1 in enumerate(rep_cols)
+        for col2 in rep_cols[i + 1 :]
+        if col1[:3] == col2[:3]  # same day only
+    ]
+    return rep_cols, combos
 
 
 def compute_correlations(counts_df: pd.DataFrame) -> pd.DataFrame:
     """Compute pairwise Pearson r between all replicate combinations per SGE target.
 
+    Automatically detects which day timepoints (D05, D13, D17) are present and
+    computes within-day pairwise correlations for each.
+
     Returns a long-form dataframe with columns: Targets, Tests, r_correlation.
     """
+    rep_cols, combos = _build_combos(counts_df.columns.tolist())
     records = []
-    rep_cols = ["D05 R1", "D05 R2", "D05 R3", "D13 R1", "D13 R2", "D13 R3"]
 
     for target, group in counts_df.groupby("target"):
         group_reps = group[rep_cols]
-        for col1, col2 in _COMBOS:
+        for col1, col2 in combos:
             r = round(group_reps[col1].corr(group_reps[col2]), 3)
             records.append(
                 {"Targets": target, "Tests": f"{col1} vs {col2}", "r_correlation": r}

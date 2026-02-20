@@ -58,32 +58,36 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=True)
     fmt = args.format
 
-    # --- Load data ---
-    print(f"Loading data from: {args.input_dir}")
-    files = io.find_files(args.input_dir)
-    scores_df, thresholds = process.load_scores(files)
-    counts_df = io.load_counts(files)
-    print(f"  {len(scores_df)} variants loaded ({len(scores_df.columns)} columns)")
+    # --- Discover genes ---
+    print(f"Scanning for gene datasets in: {args.input_dir}")
+    genes = io.find_genes(args.input_dir)
+    print(f"  Found {len(genes)} gene(s): {', '.join(genes)}")
 
-    # --- Generate and save figures ---
-    print(f"\nGenerating figures (format: {fmt})")
+    # --- Process each gene ---
+    for gene, files in genes.items():
+        print(f"\n[{gene}] Loading data...")
+        scores_df, thresholds = process.load_scores(files)
+        counts_df = io.load_counts(files)
+        print(f"  {len(scores_df)} variants loaded")
 
-    hist, strip = histogram_strip.make_figures(scores_df, thresholds)
-    io.save_figure(
-        histogram_strip.combine(hist, strip),
-        args.output_dir / f"histogram_stripplot.{fmt}",
-    )
+        print(f"[{gene}] Generating figures (format: {fmt})")
 
-    r_df = correlation.compute_correlations(counts_df)
-    io.save_figure(
-        correlation.make_heatmap(r_df),
-        args.output_dir / f"correlation_heatmap.{fmt}",
-    )
+        hist, strip = histogram_strip.make_figures(scores_df, thresholds)
+        io.save_figure(
+            histogram_strip.combine(hist, strip),
+            args.output_dir / f"{gene}_histogram_stripplot.{fmt}",
+        )
 
-    io.save_figure(
-        scores_gene.make_plot(scores_df, thresholds),
-        args.output_dir / f"scores_across_gene.{fmt}",
-    )
+        r_df = correlation.compute_correlations(counts_df)
+        io.save_figure(
+            correlation.make_heatmap(r_df),
+            args.output_dir / f"{gene}_correlation_heatmap.{fmt}",
+        )
+
+        io.save_figure(
+            scores_gene.make_plot(scores_df, thresholds, gene=gene),
+            args.output_dir / f"{gene}_scores_across_gene.{fmt}",
+        )
 
     print(f"\nDone. Figures saved to: {args.output_dir}")
 
