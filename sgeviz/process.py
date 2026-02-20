@@ -105,6 +105,74 @@ def load_allele_freqs(files: dict, scores_df: pd.DataFrame):
     return combined
 
 
+def load_clinvar(files: dict, scores_df: pd.DataFrame):
+    """Load ClinVar SNV file and merge with SGE scores.
+
+    Uses the Canonical SPDI field to extract the + strand alt allele, so this
+    correctly handles both + and - strand genes without explicit strand detection.
+
+    Returns a merged dataframe with normalized Germline classification column,
+    or None if no ClinVar file is detected.
+    """
+    clinvar_path = files.get("clinvar")
+    if clinvar_path is None:
+        return None
+
+    snv_scores = scores_df.loc[scores_df["var_type"] == "snv"].copy()
+    clinvar_df = _read_clinvar(clinvar_path)
+    merged = pd.merge(snv_scores, clinvar_df, on="pos_id", how="inner")
+    merged = _normalize_clinvar_classifications(merged)
+    print(f"  ClinVar: {len(merged)} variants with classification data")
+    return merged
+
+
+def _read_clinvar(path: Path) -> pd.DataFrame:
+    """Read ClinVar SNV tabular file and return pos_id + Germline classification.
+
+    Uses the Canonical SPDI field to derive pos_id in + strand coordinates.
+    SPDI format: NC_000002.12:214728359:A:G
+      - position is 0-based; GRCh38Location is the 1-based equivalent
+      - alt allele (last field) is always on the + strand
+    This avoids strand-specific handling for both + and - strand genes.
+    """
+    df = pd.read_csv(path, sep="\t")
+    df = df[["GRCh38Location", "Canonical SPDI", "Germline classification"]].copy()
+    df = df.dropna(subset=["GRCh38Location", "Canonical SPDI"])
+    df["GRCh38Location"] = df["GRCh38Location"].astype(int)
+    df["alt"] = df["Canonical SPDI"].str.split(":").str[-1]
+    df["pos_id"] = df["GRCh38Location"].astype(str) + ":" + df["alt"]
+    return df[["pos_id", "Germline classification"]]
+
+
+def _normalize_clinvar_classifications(df: pd.DataFrame) -> pd.DataFrame:
+    """Filter to reviewed classifications and normalize compound labels.
+
+    Keeps: Benign, Likely benign, Uncertain significance, Likely pathogenic, Pathogenic.
+    Merges: Benign/Likely benign -> Likely benign,
+            Pathogenic/Likely pathogenic -> Likely pathogenic,
+            Conflicting classifications of pathogenicity -> Uncertain significance.
+    """
+    keep = [
+        "Benign", "Benign/Likely benign", "Likely benign",
+        "Pathogenic", "Likely pathogenic", "Pathogenic/Likely pathogenic",
+        "Uncertain significance", "Conflicting classifications of pathogenicity",
+    ]
+    df = df.loc[df["Germline classification"].isin(keep)].copy()
+    df.loc[
+        df["Germline classification"] == "Benign/Likely benign",
+        "Germline classification",
+    ] = "Likely benign"
+    df.loc[
+        df["Germline classification"] == "Pathogenic/Likely pathogenic",
+        "Germline classification",
+    ] = "Likely pathogenic"
+    df.loc[
+        df["Germline classification"] == "Conflicting classifications of pathogenicity",
+        "Germline classification",
+    ] = "Uncertain significance"
+    return df
+
+
 def _read_file(path: Path) -> pd.DataFrame:
     """Read CSV or Excel file based on extension."""
     if path.suffix == ".csv":

@@ -1,3 +1,4 @@
+import fnmatch
 from pathlib import Path
 
 import altair as alt
@@ -34,6 +35,10 @@ def find_genes(input_dir: Path) -> dict:
         matches = list(input_dir.glob(pattern))
         return matches[0] if len(matches) == 1 else None
 
+    def find_optional_icase(pattern):
+        matches = [p for p in input_dir.iterdir() if fnmatch.fnmatch(p.name.lower(), pattern.lower())]
+        return matches[0] if len(matches) == 1 else None
+
     genes = {}
     for allscores_path in allscores_files:
         # e.g. '20260129_RAD51Dallscores' -> 'RAD51D'
@@ -46,6 +51,8 @@ def find_genes(input_dir: Path) -> dict:
             # Optional allele frequency files (CSV or Excel)
             "gnomad": find_optional(f"*{gene}*gnomAD*"),
             "regeneron": find_optional(f"*{gene}*Regeneron*"),
+            # Optional ClinVar SNV file (tab-delimited .txt from ClinVar download)
+            "clinvar": find_optional_icase(f"*{gene}*clinvar*snv*"),
         }
 
     return genes

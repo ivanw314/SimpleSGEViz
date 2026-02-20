@@ -17,6 +17,9 @@ Outputs (saved to output_dir):
     {gene}_histogram_stripplot    Score distribution histogram + strip plot
     {gene}_correlation_heatmap    Replicate Pearson r heatmap
     {gene}_scores_across_gene     Per-exon scatter plot of scores vs. genomic position
+    {gene}_aa_heatmap             Amino acid substitution heatmap (if amino_acid_change column present)
+    {gene}_clinvar_strip          ClinVar classification strip plot (if *{gene}*ClinVar*SNV* file present)
+    {gene}_clinvar_roc            ROC curve for SGE score B/LB vs P/LP classification (if ClinVar file present)
     {gene}_maf_vs_score           Allele frequency vs. score heatmap (if AF files present)
 
 PNG and SVG output require vl-convert-python (pip install vl-convert-python).
@@ -27,7 +30,7 @@ import sys
 from pathlib import Path
 
 from sgeviz import io, process
-from sgeviz.figures import correlation, histogram_strip, maf_score, scores_gene
+from sgeviz.figures import aa_heatmap, clinvar_strip, correlation, histogram_strip, maf_score, scores_gene
 
 
 def parse_args():
@@ -93,6 +96,31 @@ def main():
             scores_gene.make_plot(scores_df, thresholds, gene=gene),
             args.output_dir / f"{gene}_scores_across_gene.{fmt}",
         )
+
+        if "amino_acid_change" in scores_df.columns:
+            io.save_figure(
+                aa_heatmap.make_plot(scores_df, gene=gene),
+                args.output_dir / f"{gene}_aa_heatmap.{fmt}",
+            )
+        else:
+            print(f"[{gene}] No amino_acid_change column, skipping AA heatmap.")
+
+        clinvar_df = process.load_clinvar(files, scores_df)
+        if clinvar_df is not None:
+            io.save_figure(
+                clinvar_strip.make_strip(clinvar_df, thresholds, gene=gene),
+                args.output_dir / f"{gene}_clinvar_strip.{fmt}",
+            )
+            roc = clinvar_strip.make_roc(clinvar_df, gene=gene)
+            if roc is not None:
+                io.save_figure(
+                    roc,
+                    args.output_dir / f"{gene}_clinvar_roc.{fmt}",
+                )
+            else:
+                print(f"[{gene}] Insufficient B/LB and P/LP variants for ROC curve.")
+        else:
+            print(f"[{gene}] No ClinVar file found, skipping ClinVar figures.")
 
         maf_df = process.load_allele_freqs(files, scores_df)
         if maf_df is not None:
