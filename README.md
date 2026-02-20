@@ -28,46 +28,33 @@ conda create -n sgeviz python=3.11
 conda activate sgeviz
 ```
 
-### 3. Install dependencies
+### 3. Install the package
 
 **Python 3.9 or higher is required.**
 
-| Package | Purpose |
-|---|---|
-| `pandas` | Data loading and processing |
-| `numpy` | Numerical operations |
-| `altair` | Figure generation |
-| `natsort` | Natural sort order for exon labels |
-| `openpyxl` | Excel output (`--excel` flag only) |
-| `vl-convert-python` | PNG and SVG export (HTML output does not require this) |
-
-Install everything at once:
-
 ```bash
-pip install pandas numpy altair natsort openpyxl vl-convert-python
+pip install -e .
 ```
 
-If you only need HTML output and no Excel export, the minimum install is:
-
-```bash
-pip install pandas numpy altair natsort
-```
+This installs all dependencies, including PNG/SVG export support (`vl-convert-python`) and Excel output support (`openpyxl`).
 
 ### 4. Verify the setup
 
 ```bash
-python pipeline.py --help
+sgeviz --help
 ```
 
-You should see the usage message. If you get an import error, check that your virtual environment is active and that the install step completed without errors.
+You should see the usage message. If you get a "command not found" error, make sure your virtual environment is active. If you get an import error, check that the install step completed without errors.
 
 ---
 
 ## Usage
 
 ```
-python pipeline.py <input_dir> <output_dir> [--format html|png|svg] [--excel]
+sgeviz <input_dir> <output_dir> [--format html|png|svg] [--excel]
 ```
+
+> If you haven't installed via `pip install -e .`, you can also run `python pipeline.py` directly with the same arguments.
 
 ### Arguments
 
@@ -81,7 +68,7 @@ python pipeline.py <input_dir> <output_dir> [--format html|png|svg] [--excel]
 ### Example
 
 ```bash
-python pipeline.py ./data/BARD1/ ./output/BARD1/ --format png --excel
+sgeviz ./data/BARD1/ ./output/BARD1/ --format png --excel
 ```
 
 The pipeline will scan `./data/BARD1/` for gene datasets, generate figures for each gene found, and write everything to `./output/BARD1/`.
