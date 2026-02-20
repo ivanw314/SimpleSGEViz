@@ -42,7 +42,7 @@ def parse_args():
     parser.add_argument(
         "--format",
         choices=["html", "png", "svg"],
-        default="html",
+        default="png",
         help="Output format for figures (default: html). "
              "PNG/SVG require vl-convert-python.",
     )
