@@ -9,7 +9,7 @@ A command-line pipeline for generating standard visualization figures from Satur
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-org/SimpleSGEViz.git
+git clone https://github.com/ivanw314/SimpleSGEViz.git
 cd SimpleSGEViz
 ```
 
