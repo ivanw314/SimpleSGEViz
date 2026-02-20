@@ -4,15 +4,21 @@ import pandas as pd
 
 
 def load_scores(files: dict):
-    """Load and process SNV + deletion scores into a single merged dataframe.
+    """Load and process scores into a single merged dataframe.
+
+    SNVs and deletions are read from the same *allscores.tsv file and
+    distinguished by ref allele length (1 = SNV, 4 = 3bp deletion).
+    Thresholds are derived from the functional_consequence classifications
+    already present in the scores file (GMM approach).
 
     Returns:
         df: combined scores dataframe with standardized consequence labels
         thresholds: [non-functional threshold, functional threshold]
     """
-    thresholds = _read_thresholds(files["model_params"])
-    snv_df = _read_snv_scores(files["snv_scores"])
-    del_df = _read_del_scores(files["del_scores"])
+    snv_df = _read_snv_scores(files["all_scores"])
+    del_df = _read_del_scores(files["all_scores"])
+
+    thresholds = _get_gmm_thresholds(snv_df)
 
     df = pd.concat([snv_df, del_df], ignore_index=True)
     df = _rename_consequences(df)
@@ -20,13 +26,21 @@ def load_scores(files: dict):
     return df, thresholds
 
 
-def _read_thresholds(path: Path) -> list:
-    df = pd.read_csv(path, sep="\t")
-    return [df["thresh_abnormal"][0], df["thresh_normal"][0]]
+def _get_gmm_thresholds(snv_df: pd.DataFrame) -> list:
+    """Derive thresholds from functional_consequence classifications in the scores data.
+
+    Uses the highest-scoring functionally_abnormal variant as the lower threshold
+    and the lowest-scoring functionally_normal variant as the upper threshold.
+    """
+    ab_df = snv_df.loc[snv_df["functional_consequence"] == "functionally_abnormal"]
+    norm_df = snv_df.loc[snv_df["functional_consequence"] == "functionally_normal"]
+    return [ab_df["score"].max(), norm_df["score"].min()]
 
 
 def _read_snv_scores(path: Path) -> pd.DataFrame:
+    """Read SNV rows from allscores file (ref allele length == 1)."""
     df = pd.read_csv(path, sep="\t")
+    df = df.loc[df["ref"].str.len() == 1]
     df.loc[df["score"] >= 0, "functional_consequence"] = "functionally_normal"
     df["var_type"] = "snv"
     df["pos"] = df["pos"].astype(int)
@@ -38,7 +52,9 @@ def _read_snv_scores(path: Path) -> pd.DataFrame:
 
 
 def _read_del_scores(path: Path) -> pd.DataFrame:
+    """Read 3bp deletion rows from allscores file (ref allele length == 4)."""
     df = pd.read_csv(path, sep="\t")
+    df = df.loc[df["ref"].str.len() == 4]
     df["var_type"] = "3bp_del"
     df["start"] = df["pos"] + 1
     df["end"] = df["pos"] + 3

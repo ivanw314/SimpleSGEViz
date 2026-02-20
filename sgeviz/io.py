@@ -7,10 +7,10 @@ import pandas as pd
 def find_files(input_dir: Path) -> dict:
     """Discover required input TSV files in the given directory by suffix pattern."""
     patterns = {
-        "snv_scores": "*snvscores.tsv",
-        "del_scores": "*delscores.tsv",
+        "all_scores": "*allscores.tsv",
         "model_params": "*modelparams.tsv",
-        "counts": "*counts.tsv",
+        "snv_counts": "*snvcounts.tsv",
+        "del_counts": "*delcounts.tsv",
     }
 
     found = {}
@@ -28,11 +28,22 @@ def find_files(input_dir: Path) -> dict:
     return found
 
 
-def load_counts(counts_path: Path) -> pd.DataFrame:
-    """Load SNV counts file and standardize column names."""
-    df = pd.read_csv(counts_path, sep="\t")
-    df["pos_id"] = df["pos"].astype(str) + ":" + df["alt"]
-    df["target"] = df["target"].transform(lambda x: x[7:])  # strip 'BARD1_X' prefix
+def load_counts(files: dict) -> pd.DataFrame:
+    """Load and merge SNV and deletion counts files, standardizing column names."""
+    snv_df = pd.read_csv(files["snv_counts"], sep="\t")
+    del_df = pd.read_csv(files["del_counts"], sep="\t")
+
+    del_df["var_type"] = "3bp_del"
+    snv_df["start"] = snv_df["pos"]
+    snv_df["end"] = snv_df["pos"]
+    snv_df["var_type"] = "snv"
+    snv_df = snv_df.drop("pos", axis=1)
+
+    df = pd.concat([snv_df, del_df], ignore_index=True)
+
+    # Strip gene prefix from target names (e.g. BARD1_X1B -> 1B, RAD51D_X1 -> 1)
+    df["target"] = df["target"].str.replace(r"^[A-Z0-9]+_X", "", regex=True)
+
     df = df.rename(
         columns={
             "D05_R1": "D05 R1",

@@ -4,10 +4,10 @@ Usage:
     python pipeline.py <input_dir> <output_dir> [--format html|png|svg]
 
 The input directory must contain:
-    *snvscores.tsv      SNV fitness scores
-    *delscores.tsv      3bp deletion fitness scores
+    *allscores.tsv      SNV + deletion fitness scores (combined file)
     *modelparams.tsv    SGE model thresholds
-    *counts.tsv         Per-replicate SNV counts
+    *snvcounts.tsv      Per-replicate SNV counts
+    *delcounts.tsv      Per-replicate deletion counts
 
 Outputs (saved to output_dir):
     histogram_stripplot   Score distribution histogram + strip plot
@@ -62,7 +62,7 @@ def main():
     print(f"Loading data from: {args.input_dir}")
     files = io.find_files(args.input_dir)
     scores_df, thresholds = process.load_scores(files)
-    counts_df = io.load_counts(files["counts"])
+    counts_df = io.load_counts(files)
     print(f"  {len(scores_df)} variants loaded ({len(scores_df.columns)} columns)")
 
     # --- Generate and save figures ---
