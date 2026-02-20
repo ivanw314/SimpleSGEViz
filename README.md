@@ -40,6 +40,8 @@ pip install -e .
 
 This installs all dependencies, including PNG/SVG export support (`vl-convert-python`) and Excel output support (`openpyxl`).
 
+After a `git pull`, changes are picked up automatically — no reinstall needed. Re-run `pip install -e .` only if `pyproject.toml` changes (e.g. new dependencies were added).
+
 ### 4. Verify the setup
 
 ```bash
