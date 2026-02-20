@@ -44,7 +44,7 @@ def _compute_roc(df: pd.DataFrame):
         tprs.append(tp / n_pos)
         fprs.append(fp / n_neg)
 
-    auc_val = float(np.trapz(tprs, fprs))
+    auc_val = float(np.trapezoid(tprs, fprs))
     return pd.DataFrame({"FPR": fprs, "TPR": tprs}), auc_val
 
 
