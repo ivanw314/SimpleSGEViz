@@ -24,9 +24,11 @@ source .venv/bin/activate      # macOS / Linux
 Or with conda:
 
 ```bash
-conda create -n sgeviz python=3.11
+conda create -n sgeviz -c conda-forge python=3.11 tzdata
 conda activate sgeviz
 ```
+
+> If you see a `tzdata` unsatisfiable error, your conda index is likely stale. Run `conda update -n base conda && conda clean --all`, then retry the create command.
 
 ### 3. Install the package
 
