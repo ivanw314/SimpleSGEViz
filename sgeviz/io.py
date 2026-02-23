@@ -36,7 +36,10 @@ def find_genes(input_dir: Path) -> dict:
         return matches[0] if len(matches) == 1 else None
 
     def find_optional_icase(pattern):
-        matches = [p for p in input_dir.iterdir() if fnmatch.fnmatch(p.name.lower(), pattern.lower())]
+        matches = [
+            p for p in input_dir.iterdir()
+            if not p.name.startswith("~$") and fnmatch.fnmatch(p.name.lower(), pattern.lower())
+        ]
         return matches[0] if len(matches) == 1 else None
 
     genes = {}
