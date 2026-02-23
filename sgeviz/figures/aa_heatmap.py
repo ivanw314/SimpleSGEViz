@@ -139,7 +139,7 @@ def make_plot(df: pd.DataFrame, gene: str = "", thresholds=None) -> alt.Chart:
     )
 
     gene_label = f" ({gene})" if gene else ""
-    count_label = f"n = {n} SNVs, {n_del} deletions" if n_del > 0 else f"n = {n}"
+    count_label = f"n = {n_del} deletions, {n} SNVs" if n_del > 0 else f"n = {n}"
     title = f"Deletion and Heatmap{gene_label} ({count_label})"
 
     vep_cols_present = {k: v for k, v in _VEP_COLS.items() if k in snv_df.columns}
