@@ -109,18 +109,44 @@ def _load_domains(path, prot_length: int) -> pd.DataFrame:
 
 
 def _make_domain_cartoon(segments_df: pd.DataFrame, prot_length: int, width: int) -> alt.Chart:
-    """Colored rect strip with labels centered in a label zone above the strip."""
+    """Colored rect strip with labels in a zone above the strip.
+
+    Labels that are too wide for their segment, or that would overlap a
+    neighbour, are suppressed. The segment is still rendered and has a tooltip.
+    """
     LABEL_H = 18   # pixels reserved above the colored strip for labels
     RECT_H = 25    # height of the colored strip itself
     TOTAL_H = LABEL_H + RECT_H
+    CHAR_W = 7     # approximate px per character at 13pt bold
+    PAD = 4        # horizontal padding on each side of a label
     x_scale = alt.Scale(domain=[1, prot_length + 1])
 
     df = segments_df.copy()
     df["center"] = (df["start"] + df["end"]) / 2
+
     label_df = df.loc[df["label"] != ""].copy()
-    # In a [0,1] quantitative y scale (0=bottom, 1=top) over TOTAL_H pixels,
-    # the label zone center (LABEL_H/2 px from top) maps to 1 - (LABEL_H/2)/TOTAL_H.
+    # y position: center of the label zone above the strip
     label_df["y_mid"] = 1.0 - (LABEL_H / 2) / TOTAL_H
+
+    # Pixel geometry for overlap detection
+    label_df["center_px"] = (label_df["center"] - 1) / prot_length * width
+    label_df["seg_px"] = (label_df["end"] - label_df["start"]) / prot_length * width
+    label_df["txt_px"] = label_df["label"].str.len() * CHAR_W + PAD * 2
+
+    # Drop labels that don't fit within their own segment
+    label_df = label_df.loc[label_df["txt_px"] <= label_df["seg_px"]].reset_index(drop=True)
+
+    # Greedy left-to-right: suppress labels that overlap the previous visible one
+    if not label_df.empty:
+        keep = []
+        last_right_px = -float("inf")
+        for _, row in label_df.sort_values("center_px").iterrows():
+            left_px = row["center_px"] - row["txt_px"] / 2
+            right_px = row["center_px"] + row["txt_px"] / 2
+            if left_px >= last_right_px:
+                keep.append(row.name)
+                last_right_px = right_px
+        label_df = label_df.loc[keep]
 
     rects = (
         alt.Chart(df)
