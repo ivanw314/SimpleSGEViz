@@ -111,7 +111,7 @@ def main():
 
         if "amino_acid_change" in scores_df.columns:
             io.save_figure(
-                aa_heatmap.make_plot(scores_df, gene=gene),
+                aa_heatmap.make_plot(scores_df, gene=gene, thresholds=thresholds),
                 args.output_dir / f"{gene}_aa_heatmap.{fmt}",
             )
         else:

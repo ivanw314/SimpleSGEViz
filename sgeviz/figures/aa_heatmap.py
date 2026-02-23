@@ -1,6 +1,14 @@
 import altair as alt
 import pandas as pd
 
+_DEL_TYPES = ["Inframe Indel", "Stop Gained"]
+_DEL_PALETTE = ["black", "#ffc007"]
+_DEL_CONSEQUENCE_MAP = {
+    "inframe_indel": "Inframe Indel",
+    "stop_gained": "Stop Gained",
+    "start_lost": "Inframe Indel",
+    "stop_lost": "Inframe Indel",
+}
 
 _AA_ORDER = [
     "A", "C", "D", "E", "F", "G", "H", "I", "K", "L",
@@ -15,7 +23,72 @@ _VEP_COLS = {
 }
 
 
-def make_plot(df: pd.DataFrame, gene: str = "") -> alt.Chart:
+def _make_del_panel(
+    del_df: pd.DataFrame, thresholds, prot_length: int, width: int
+) -> alt.Chart:
+    """Scatter plot of 3bp deletion fitness scores by protein position."""
+    del_df = del_df.copy()
+    if "amino_acid_change" in del_df.columns:
+        del_df = del_df.loc[~del_df["amino_acid_change"].isin(["---"])]
+
+    del_df["_cds_start"] = del_df["CDS_position"].str.split("-").str[0]
+    del_df["_cds_end"] = del_df["CDS_position"].str.split("-").str[1]
+    del_df = del_df.loc[
+        ~del_df["_cds_start"].isin(["?"]) & ~del_df["_cds_end"].isin(["?"])
+    ]
+    del_df["_cds_start"] = del_df["_cds_start"].astype(int)
+    del_df["ps_aa_start"] = ((del_df["_cds_start"] + 2) / 3).round(2)
+    del_df["consequence"] = del_df["consequence"].replace(_DEL_CONSEQUENCE_MAP)
+
+    scatter = (
+        alt.Chart(del_df)
+        .mark_point(strokeWidth=3, size=75, opacity=1)
+        .encode(
+            x=alt.X(
+                "ps_aa_start:Q",
+                title="",
+                axis=alt.Axis(ticks=False, labels=False),
+                scale=alt.Scale(domain=[1, prot_length + 1], nice=False),
+            ),
+            y=alt.Y(
+                "score:Q",
+                title="Fitness Score",
+                axis=alt.Axis(titleFontSize=20, labelFontSize=18),
+                scale=alt.Scale(domain=[-0.5, 0.1]),
+            ),
+            color=alt.Color(
+                "consequence:N",
+                scale=alt.Scale(domain=_DEL_TYPES, range=_DEL_PALETTE),
+                legend=alt.Legend(
+                    title="Consequence", labelFontSize=18, titleFontSize=20, orient="right"
+                ),
+            ),
+            shape=alt.Shape(
+                "consequence:N",
+                scale=alt.Scale(domain=_DEL_TYPES, range=["square", "triangle"]),
+                legend=None,
+            ),
+            order=alt.Order("consequence:N", sort="ascending"),
+        )
+        .properties(width=width, height=150)
+    )
+
+    layers = [scatter]
+    if thresholds is not None:
+        layers.append(
+            alt.Chart(del_df)
+            .mark_rule(color="red", strokeDash=[8, 8], strokeWidth=1)
+            .encode(y=alt.datum(thresholds[0]))
+        )
+        layers.append(
+            alt.Chart(del_df)
+            .mark_rule(color="blue", strokeDash=[8, 8], strokeWidth=1)
+            .encode(y=alt.datum(thresholds[1]))
+        )
+    return alt.layer(*layers)
+
+
+def make_plot(df: pd.DataFrame, gene: str = "", thresholds=None) -> alt.Chart:
     """Generate amino acid substitution heatmap of SGE fitness scores.
 
     X-axis: amino acid position (per-residue bins).
@@ -138,9 +211,23 @@ def make_plot(df: pd.DataFrame, gene: str = "") -> alt.Chart:
             ),
         ).properties(width=width, height=height_per_row * len(vep_cols_present))
 
-        chart = alt.vconcat(heatmap, vep_map, spacing=9).resolve_scale(color="independent")
+        lower = alt.vconcat(heatmap, vep_map, spacing=9).resolve_scale(color="independent")
     else:
-        chart = heatmap
+        lower = heatmap
+
+    has_del = (
+        "var_type" in df.columns
+        and "CDS_position" in df.columns
+        and (df["var_type"] == "3bp_del").any()
+    )
+    if has_del:
+        del_df = df.loc[df["var_type"] == "3bp_del"].copy()
+        del_panel = _make_del_panel(del_df, thresholds, prot_length, width)
+        chart = alt.vconcat(del_panel, lower, spacing=9).resolve_scale(
+            x="shared", color="independent", shape="independent"
+        )
+    else:
+        chart = lower
 
     return (
         chart
