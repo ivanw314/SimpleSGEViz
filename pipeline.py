@@ -110,10 +110,15 @@ def main():
         )
 
         if "amino_acid_change" in scores_df.columns:
+            domains_path = files.get("domains")
+            if domains_path is not None:
+                print(f"[{gene}] Domain file detected: {domains_path.name}")
+            else:
+                print(f"[{gene}] No domain file detected (place a *{gene}*domain* file in input dir to enable).")
             io.save_figure(
                 aa_heatmap.make_plot(
                     scores_df, gene=gene, thresholds=thresholds,
-                    domains_path=files.get("domains"),
+                    domains_path=domains_path,
                 ),
                 args.output_dir / f"{gene}_aa_heatmap.{fmt}",
             )
