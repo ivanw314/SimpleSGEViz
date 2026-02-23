@@ -36,16 +36,19 @@ _VEP_COLS = {
 }
 
 
-def _load_domains(path, prot_length: int):
-    """Load a domain annotation file and return (tier0_df, tier1_df).
+def _load_domains(path, prot_length: int) -> pd.DataFrame:
+    """Load a domain annotation file and return a single flat segment DataFrame.
 
     Expected columns: region_name, aa_residues (format "start-end").
     Optional columns:
       color (hex)  – auto-assigned from _DOMAIN_PALETTE if absent.
-      tier (int)   – 0 = main strip (default), 1 = sub-feature strip.
+      tier (int)   – 0 = main domain (default), 1 = sub-feature.
 
-    Each returned DataFrame has start, end, label, color columns.
-    tier1_df is None when no tier-1 rows exist.
+    Tier-1 sub-features are inserted into the tier-0 strip in place: any tier-0
+    segment overlapping a sub-feature is split into [before, sub-feature, after],
+    so both colors appear inline in a single strip.
+
+    Returns a DataFrame with start, end, label, color columns.
     """
     suffix = Path(path).suffix.lower()
     raw = pd.read_excel(path) if suffix in (".xlsx", ".xls") else pd.read_csv(path)
@@ -60,83 +63,91 @@ def _load_domains(path, prot_length: int):
         palette = _DOMAIN_PALETTE * ((len(raw) // len(_DOMAIN_PALETTE)) + 1)
         raw["color"] = palette[: len(raw)]
 
-    def _fill_gaps(rows, gap_color):
-        segments = []
-        pos = 1
-        for _, row in rows.iterrows():
-            if pos < row["start"]:
-                segments.append({"start": pos, "end": row["start"], "label": "", "color": gap_color})
-            segments.append({
-                "start": row["start"],
-                "end": row["end"],
-                "label": row["region_name"],
-                "color": row["color"],
-            })
-            pos = row["end"]
-        if pos <= prot_length:
-            segments.append({"start": pos, "end": prot_length + 1, "label": "", "color": gap_color})
-        return pd.DataFrame(segments)
-
+    # Build tier-0 base segments with gray gap fills
     tier0 = raw.loc[raw["tier"] == 0].sort_values("start").reset_index(drop=True)
+    segments = []
+    pos = 1
+    for _, row in tier0.iterrows():
+        if pos < row["start"]:
+            segments.append({"start": pos, "end": row["start"], "label": "", "color": "#CCCCCC"})
+        segments.append({
+            "start": row["start"],
+            "end": row["end"],
+            "label": row["region_name"],
+            "color": row["color"],
+        })
+        pos = row["end"]
+    if pos <= prot_length:
+        segments.append({"start": pos, "end": prot_length + 1, "label": "", "color": "#CCCCCC"})
+
+    # Insert tier-1 sub-features by splitting any overlapping parent segment
     tier1 = raw.loc[raw["tier"] == 1].sort_values("start").reset_index(drop=True)
+    for _, sub in tier1.iterrows():
+        new_segs = []
+        for seg in segments:
+            if sub["start"] >= seg["end"] or sub["end"] <= seg["start"]:
+                new_segs.append(seg)
+                continue
+            # Split: piece before sub-feature
+            if seg["start"] < sub["start"]:
+                new_segs.append({"start": seg["start"], "end": sub["start"],
+                                 "label": seg["label"], "color": seg["color"]})
+            # The sub-feature itself (clipped to parent bounds)
+            new_segs.append({
+                "start": max(seg["start"], sub["start"]),
+                "end": min(seg["end"], sub["end"]),
+                "label": sub["region_name"],
+                "color": sub["color"],
+            })
+            # Piece after sub-feature
+            if seg["end"] > sub["end"]:
+                new_segs.append({"start": sub["end"], "end": seg["end"],
+                                 "label": seg["label"], "color": seg["color"]})
+        segments = new_segs
 
-    tier0_df = _fill_gaps(tier0, "#CCCCCC")
-    tier1_df = _fill_gaps(tier1, "#FFFFFF") if len(tier1) > 0 else None
-
-    return tier0_df, tier1_df
+    return pd.DataFrame(segments)
 
 
-def _make_domain_cartoon(tier0_df: pd.DataFrame, tier1_df, prot_length: int, width: int) -> alt.Chart:
-    """Colored rect strip(s) with domain name labels centered in each segment.
-
-    tier0_df is the main strip; tier1_df (optional) is a thinner sub-feature strip
-    rendered below it (e.g. Walker motifs inside a RecA domain).
-    """
+def _make_domain_cartoon(segments_df: pd.DataFrame, prot_length: int, width: int) -> alt.Chart:
+    """Single colored rect strip with domain name labels centered in each segment."""
+    HEIGHT = 25
     x_scale = alt.Scale(domain=[1, prot_length + 1])
 
-    def _strip(df, height, font_size):
-        df = df.copy()
-        df["center"] = (df["start"] + df["end"]) / 2
-        label_df = df.loc[df["label"] != ""].copy()
-        label_df["y_mid"] = 0.5  # maps to vertical center in a [0,1] scale
+    df = segments_df.copy()
+    df["center"] = (df["start"] + df["end"]) / 2
+    label_df = df.loc[df["label"] != ""].copy()
+    label_df["y_mid"] = 0.5  # maps to vertical center in a [0,1] scale
 
-        rects = (
-            alt.Chart(df)
-            .mark_rect(stroke="black", strokeWidth=0.5)
-            .encode(
-                x=alt.X("start:Q", axis=None, scale=x_scale),
-                x2="end:Q",
-                y=alt.value(0),
-                y2=alt.value(height),
-                color=alt.Color("color:N", scale=None, legend=None),
-                tooltip=[
-                    alt.Tooltip("label:N", title="Domain"),
-                    alt.Tooltip("start:Q", title="Start"),
-                    alt.Tooltip("end:Q", title="End"),
-                ],
-            )
-            .properties(width=width, height=height)
+    rects = (
+        alt.Chart(df)
+        .mark_rect(stroke="black", strokeWidth=0.5)
+        .encode(
+            x=alt.X("start:Q", axis=None, scale=x_scale),
+            x2="end:Q",
+            y=alt.value(0),
+            y2=alt.value(HEIGHT),
+            color=alt.Color("color:N", scale=None, legend=None),
+            tooltip=[
+                alt.Tooltip("label:N", title="Domain"),
+                alt.Tooltip("start:Q", title="Start"),
+                alt.Tooltip("end:Q", title="End"),
+            ],
         )
+        .properties(width=width, height=HEIGHT)
+    )
 
-        labels = (
-            alt.Chart(label_df)
-            .mark_text(fontSize=font_size, fontWeight="bold", baseline="middle", align="center")
-            .encode(
-                x=alt.X("center:Q", axis=None, scale=x_scale),
-                y=alt.Y("y_mid:Q", scale=alt.Scale(domain=[0, 1]), axis=None),
-                text="label:N",
-            )
-            .properties(width=width, height=height)
+    labels = (
+        alt.Chart(label_df)
+        .mark_text(fontSize=13, fontWeight="bold", baseline="middle", align="center")
+        .encode(
+            x=alt.X("center:Q", axis=None, scale=x_scale),
+            y=alt.Y("y_mid:Q", scale=alt.Scale(domain=[0, 1]), axis=None),
+            text="label:N",
         )
+        .properties(width=width, height=HEIGHT)
+    )
 
-        return alt.layer(rects, labels).resolve_scale(y="independent")
-
-    strip0 = _strip(tier0_df, 25, 13)
-    if tier1_df is None:
-        return strip0
-
-    strip1 = _strip(tier1_df, 15, 10)
-    return alt.vconcat(strip0, strip1, spacing=1)
+    return alt.layer(rects, labels).resolve_scale(y="independent")
 
 
 def _make_del_panel(
@@ -338,8 +349,8 @@ def make_plot(df: pd.DataFrame, gene: str = "", thresholds=None, domains_path=No
     panels = []
 
     if domains_path is not None:
-        tier0_df, tier1_df = _load_domains(domains_path, prot_length)
-        panels.append(_make_domain_cartoon(tier0_df, tier1_df, prot_length, width))
+        segments_df = _load_domains(domains_path, prot_length)
+        panels.append(_make_domain_cartoon(segments_df, prot_length, width))
 
     has_del = (
         "var_type" in df.columns
