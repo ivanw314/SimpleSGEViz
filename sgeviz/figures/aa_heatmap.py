@@ -109,14 +109,18 @@ def _load_domains(path, prot_length: int) -> pd.DataFrame:
 
 
 def _make_domain_cartoon(segments_df: pd.DataFrame, prot_length: int, width: int) -> alt.Chart:
-    """Single colored rect strip with domain name labels centered in each segment."""
-    HEIGHT = 25
+    """Colored rect strip with labels centered in a label zone above the strip."""
+    LABEL_H = 18   # pixels reserved above the colored strip for labels
+    RECT_H = 25    # height of the colored strip itself
+    TOTAL_H = LABEL_H + RECT_H
     x_scale = alt.Scale(domain=[1, prot_length + 1])
 
     df = segments_df.copy()
     df["center"] = (df["start"] + df["end"]) / 2
     label_df = df.loc[df["label"] != ""].copy()
-    label_df["y_mid"] = 0.5  # maps to vertical center in a [0,1] scale
+    # In a [0,1] quantitative y scale (0=bottom, 1=top) over TOTAL_H pixels,
+    # the label zone center (LABEL_H/2 px from top) maps to 1 - (LABEL_H/2)/TOTAL_H.
+    label_df["y_mid"] = 1.0 - (LABEL_H / 2) / TOTAL_H
 
     rects = (
         alt.Chart(df)
@@ -124,8 +128,8 @@ def _make_domain_cartoon(segments_df: pd.DataFrame, prot_length: int, width: int
         .encode(
             x=alt.X("start:Q", axis=None, scale=x_scale),
             x2="end:Q",
-            y=alt.value(0),
-            y2=alt.value(HEIGHT),
+            y=alt.value(LABEL_H),
+            y2=alt.value(TOTAL_H),
             color=alt.Color("color:N", scale=None, legend=None),
             tooltip=[
                 alt.Tooltip("label:N", title="Domain"),
@@ -133,7 +137,7 @@ def _make_domain_cartoon(segments_df: pd.DataFrame, prot_length: int, width: int
                 alt.Tooltip("end:Q", title="End"),
             ],
         )
-        .properties(width=width, height=HEIGHT)
+        .properties(width=width, height=TOTAL_H)
     )
 
     labels = (
@@ -144,7 +148,7 @@ def _make_domain_cartoon(segments_df: pd.DataFrame, prot_length: int, width: int
             y=alt.Y("y_mid:Q", scale=alt.Scale(domain=[0, 1]), axis=None),
             text="label:N",
         )
-        .properties(width=width, height=HEIGHT)
+        .properties(width=width, height=TOTAL_H)
     )
 
     return alt.layer(rects, labels).resolve_scale(y="independent")
