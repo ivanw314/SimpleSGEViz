@@ -113,7 +113,7 @@ def main():
             io.save_figure(
                 aa_heatmap.make_plot(
                     scores_df, gene=gene, thresholds=thresholds,
-                    domains_path=files[gene].get("domains"),
+                    domains_path=files.get("domains"),
                 ),
                 args.output_dir / f"{gene}_aa_heatmap.{fmt}",
             )
