@@ -122,6 +122,7 @@ def make_plot(df: pd.DataFrame, gene: str = "", thresholds=None) -> alt.Chart:
 
     prot_length = snv_df["AApos"].max()
     n = len(snv_df)
+    n_del = int((df["var_type"] == "3bp_del").sum()) if "var_type" in df.columns else 0
     width = 4 * prot_length
     height_per_row = 25
 
@@ -137,7 +138,9 @@ def make_plot(df: pd.DataFrame, gene: str = "", thresholds=None) -> alt.Chart:
         ignore_index=True,
     )
 
-    title = f"Amino Acid Heatmap{' (' + gene + ')' if gene else ''} (n = {n})"
+    gene_label = f" ({gene})" if gene else ""
+    count_label = f"n = {n} SNVs, {n_del} deletions" if n_del > 0 else f"n = {n}"
+    title = f"Deletion and Heatmap{gene_label} ({count_label})"
 
     vep_cols_present = {k: v for k, v in _VEP_COLS.items() if k in snv_df.columns}
     has_vep = bool(vep_cols_present)
@@ -231,7 +234,7 @@ def make_plot(df: pd.DataFrame, gene: str = "", thresholds=None) -> alt.Chart:
 
     return (
         chart
-        .properties(title=alt.TitleParams(text=title, fontSize=22))
+        .properties(title=alt.TitleParams(text=title, fontSize=22, anchor="middle"))
         .configure_axis(grid=False)
         .configure_view(stroke=None)
     )
