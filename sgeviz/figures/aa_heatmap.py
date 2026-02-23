@@ -4,10 +4,10 @@ import pandas as pd
 _DEL_TYPES = ["Inframe Indel", "Stop Gained"]
 _DEL_PALETTE = ["black", "#ffc007"]
 _DEL_CONSEQUENCE_MAP = {
-    "inframe_indel": "Inframe Indel",
-    "stop_gained": "Stop Gained",
-    "start_lost": "Inframe Indel",
-    "stop_lost": "Inframe Indel",
+    # process.py already maps inframe_indel → "Inframe Indel" and stop_gained → "Stop Gained";
+    # merge the rarer cases into "Inframe Indel" for the del panel display.
+    "Start Lost": "Inframe Indel",
+    "Stop Lost": "Inframe Indel",
 }
 
 _AA_ORDER = [
@@ -38,7 +38,7 @@ def _make_del_panel(
     ]
     del_df["_cds_start"] = del_df["_cds_start"].astype(int)
     del_df["ps_aa_start"] = ((del_df["_cds_start"] + 2) / 3).round(2)
-    del_df["consequence"] = del_df["consequence"].replace(_DEL_CONSEQUENCE_MAP)
+    del_df["Consequence"] = del_df["Consequence"].replace(_DEL_CONSEQUENCE_MAP)
 
     scatter = (
         alt.Chart(del_df)
@@ -57,18 +57,18 @@ def _make_del_panel(
                 scale=alt.Scale(domain=[-0.5, 0.1]),
             ),
             color=alt.Color(
-                "consequence:N",
+                "Consequence:N",
                 scale=alt.Scale(domain=_DEL_TYPES, range=_DEL_PALETTE),
                 legend=alt.Legend(
                     title="Consequence", labelFontSize=18, titleFontSize=20, orient="right"
                 ),
             ),
             shape=alt.Shape(
-                "consequence:N",
+                "Consequence:N",
                 scale=alt.Scale(domain=_DEL_TYPES, range=["square", "triangle"]),
                 legend=None,
             ),
-            order=alt.Order("consequence:N", sort="ascending"),
+            order=alt.Order("Consequence:N", sort="ascending"),
         )
         .properties(width=width, height=150)
     )

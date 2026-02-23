@@ -11,7 +11,7 @@ VARIANT_TYPES = [
     "Start Lost",
     "Canonical Splice",
     "Splice Region",
-    "3bp Deletion",
+    "Inframe Indel",
 ]
 
 PALETTE = [
@@ -24,5 +24,5 @@ PALETTE = [
     "#000000",  # black        – Start Lost
     "#1170AA",  # darker blue  – Canonical Splice
     "#CFCFCF",  # light gray   – Splice Region
-    "#FF9A00",  # orange       – 3bp Deletion
+    "#FF9A00",  # orange       – Inframe Indel
 ]
