@@ -97,14 +97,17 @@ def _make_domain_cartoon(tier0_df: pd.DataFrame, tier1_df, prot_length: int, wid
     def _strip(df, height, font_size):
         df = df.copy()
         df["center"] = (df["start"] + df["end"]) / 2
-        label_df = df.loc[df["label"] != ""]
+        label_df = df.loc[df["label"] != ""].copy()
+        label_df["y_mid"] = 0.5  # maps to vertical center in a [0,1] scale
 
         rects = (
             alt.Chart(df)
-            .mark_rect(height=height, stroke="black", strokeWidth=0.5)
+            .mark_rect(stroke="black", strokeWidth=0.5)
             .encode(
                 x=alt.X("start:Q", axis=None, scale=x_scale),
                 x2="end:Q",
+                y=alt.value(0),
+                y2=alt.value(height),
                 color=alt.Color("color:N", scale=None, legend=None),
                 tooltip=[
                     alt.Tooltip("label:N", title="Domain"),
@@ -120,13 +123,13 @@ def _make_domain_cartoon(tier0_df: pd.DataFrame, tier1_df, prot_length: int, wid
             .mark_text(fontSize=font_size, fontWeight="bold", baseline="middle", align="center")
             .encode(
                 x=alt.X("center:Q", axis=None, scale=x_scale),
-                y=alt.value(height / 2),
+                y=alt.Y("y_mid:Q", scale=alt.Scale(domain=[0, 1]), axis=None),
                 text="label:N",
             )
             .properties(width=width, height=height)
         )
 
-        return alt.layer(rects, labels)
+        return alt.layer(rects, labels).resolve_scale(y="independent")
 
     strip0 = _strip(tier0_df, 25, 13)
     if tier1_df is None:
