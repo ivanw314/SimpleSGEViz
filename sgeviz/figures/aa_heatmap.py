@@ -1,5 +1,18 @@
+from pathlib import Path
+
 import altair as alt
 import pandas as pd
+
+_DOMAIN_PALETTE = [
+    "#B9DBF4",  # light blue
+    "#C8DBC8",  # light green
+    "#FF9A00",  # orange
+    "#ffc976",  # amber
+    "#D5A6BD",  # pink
+    "#A4C2F4",  # periwinkle
+    "#FFD966",  # gold
+    "#B6D7A8",  # sage green
+]
 
 _DEL_TYPES = ["Inframe Indel", "Stop Gained"]
 _DEL_PALETTE = ["black", "#ffc007"]
@@ -21,6 +34,79 @@ _VEP_COLS = {
     "revel_score": "REVEL",
     "MutPred2": "MutPred2",
 }
+
+
+def _load_domains(path, prot_length: int) -> pd.DataFrame:
+    """Load a domain annotation file and fill gaps with gray segments.
+
+    Expected columns: region_name, aa_residues (format "start-end").
+    Optional column: color (hex). If absent, colors are auto-assigned from _DOMAIN_PALETTE.
+    Returns a DataFrame with start, end, label, color columns covering [1, prot_length].
+    """
+    suffix = Path(path).suffix.lower()
+    raw = pd.read_excel(path) if suffix in (".xlsx", ".xls") else pd.read_csv(path)
+
+    raw[["start", "end"]] = raw["aa_residues"].str.split("-", expand=True).astype(int)
+    raw = raw.sort_values("start").reset_index(drop=True)
+
+    if "color" not in raw.columns:
+        palette = _DOMAIN_PALETTE * ((len(raw) // len(_DOMAIN_PALETTE)) + 1)
+        raw["color"] = palette[: len(raw)]
+
+    segments = []
+    pos = 1
+    for _, row in raw.iterrows():
+        if pos < row["start"]:
+            segments.append({"start": pos, "end": row["start"], "label": "", "color": "#CCCCCC"})
+        segments.append({
+            "start": row["start"],
+            "end": row["end"],
+            "label": row["region_name"],
+            "color": row["color"],
+        })
+        pos = row["end"]
+    if pos <= prot_length:
+        segments.append({"start": pos, "end": prot_length + 1, "label": "", "color": "#CCCCCC"})
+
+    return pd.DataFrame(segments)
+
+
+def _make_domain_cartoon(domain_df: pd.DataFrame, prot_length: int, width: int) -> alt.Chart:
+    """Colored rect strip with domain name labels centered in each segment."""
+    domain_df = domain_df.copy()
+    domain_df["center"] = (domain_df["start"] + domain_df["end"]) / 2
+    label_df = domain_df.loc[domain_df["label"] != ""]
+
+    HEIGHT = 25
+    x_scale = alt.Scale(domain=[1, prot_length + 1])
+
+    rects = (
+        alt.Chart(domain_df)
+        .mark_rect(height=HEIGHT, stroke="black", strokeWidth=1)
+        .encode(
+            x=alt.X("start:Q", axis=None, scale=x_scale),
+            x2="end:Q",
+            color=alt.Color("color:N", scale=None, legend=None),
+            tooltip=[
+                alt.Tooltip("label:N", title="Domain"),
+                alt.Tooltip("start:Q", title="Start"),
+                alt.Tooltip("end:Q", title="End"),
+            ],
+        )
+        .properties(width=width, height=HEIGHT)
+    )
+
+    labels = (
+        alt.Chart(label_df)
+        .mark_text(fontSize=13, fontWeight="bold", baseline="middle", align="center")
+        .encode(
+            x=alt.X("center:Q", axis=None, scale=x_scale),
+            text="label:N",
+        )
+        .properties(width=width, height=HEIGHT)
+    )
+
+    return alt.layer(rects, labels)
 
 
 def _make_del_panel(
@@ -88,7 +174,7 @@ def _make_del_panel(
     return alt.layer(*layers)
 
 
-def make_plot(df: pd.DataFrame, gene: str = "", thresholds=None) -> alt.Chart:
+def make_plot(df: pd.DataFrame, gene: str = "", thresholds=None, domains_path=None) -> alt.Chart:
     """Generate amino acid substitution heatmap of SGE fitness scores.
 
     X-axis: amino acid position (per-residue bins).
@@ -218,6 +304,13 @@ def make_plot(df: pd.DataFrame, gene: str = "", thresholds=None) -> alt.Chart:
     else:
         lower = heatmap
 
+    # Build panel stack top-to-bottom: domains → deletions → heatmap(+vep)
+    panels = []
+
+    if domains_path is not None:
+        domain_df = _load_domains(domains_path, prot_length)
+        panels.append(_make_domain_cartoon(domain_df, prot_length, width))
+
     has_del = (
         "var_type" in df.columns
         and "CDS_position" in df.columns
@@ -225,12 +318,16 @@ def make_plot(df: pd.DataFrame, gene: str = "", thresholds=None) -> alt.Chart:
     )
     if has_del:
         del_df = df.loc[df["var_type"] == "3bp_del"].copy()
-        del_panel = _make_del_panel(del_df, thresholds, prot_length, width)
-        chart = alt.vconcat(del_panel, lower, spacing=9).resolve_scale(
+        panels.append(_make_del_panel(del_df, thresholds, prot_length, width))
+
+    panels.append(lower)
+
+    if len(panels) == 1:
+        chart = panels[0]
+    else:
+        chart = alt.vconcat(*panels, spacing=9).resolve_scale(
             x="shared", color="independent", shape="independent"
         )
-    else:
-        chart = lower
 
     return (
         chart
