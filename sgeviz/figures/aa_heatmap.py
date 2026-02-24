@@ -272,7 +272,13 @@ def _make_del_panel(
     return alt.layer(*layers)
 
 
-def make_plot(df: pd.DataFrame, gene: str = "", thresholds=None, domains_path=None) -> alt.Chart:
+def make_plot(
+    df: pd.DataFrame,
+    gene: str = "",
+    thresholds=None,
+    domains_path=None,
+    protein_length: int | None = None,
+) -> alt.Chart:
     """Generate amino acid substitution heatmap of SGE fitness scores.
 
     X-axis: amino acid position (per-residue bins).
@@ -285,6 +291,9 @@ def make_plot(df: pd.DataFrame, gene: str = "", thresholds=None, domains_path=No
     Args:
         df: scores dataframe from process.load_scores (must contain amino_acid_change).
         gene: Gene name used in the plot title.
+        protein_length: Known full length of the protein. If provided and larger than
+            the maximum position observed in the data, it will be used instead (the
+            dataset may be incomplete and not cover all residues).
     """
     alt.data_transformers.disable_max_rows()
 
@@ -305,6 +314,8 @@ def make_plot(df: pd.DataFrame, gene: str = "", thresholds=None, domains_path=No
         snv_df = snv_df.loc[snv_df["max_SpliceAI"] <= 0.2]
 
     prot_length = snv_df["AApos"].max()
+    if protein_length is not None and protein_length > prot_length:
+        prot_length = protein_length
     n = len(snv_df)
     n_del = int((df["var_type"] == "3bp_del").sum()) if "var_type" in df.columns else 0
     width = 4 * prot_length
