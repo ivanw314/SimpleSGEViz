@@ -13,11 +13,6 @@ _REP_MAP = {
     "R7R8R9": "Rep. 3",
 }
 
-_REP_ORDER = ["Rep. 1", "Rep. 2", "Rep. 3"]
-
-# Colours reuse the three-replicate scheme from other figures
-_REP_PALETTE = ["#4C72B0", "#DD8452", "#55A868"]
-
 
 def _natsort_key(s: str) -> list:
     """Natural sort key: splits on digit runs so '10A' sorts after '9A'."""
@@ -54,40 +49,36 @@ def make_plot(df: pd.DataFrame, gene: str = "") -> alt.Chart:
         .encode(
             x=alt.X(
                 "rep:N",
-                sort=_REP_ORDER,
                 axis=alt.Axis(title="", labels=False, ticks=False),
             ),
             y=alt.Y(
                 "edit_rate:Q",
                 title="Lib. Edit Rate",
-                axis=alt.Axis(labelFontSize=14, titleFontSize=16),
-                scale=alt.Scale(domain=[0, df["edit_rate"].max() * 1.15]),
+                axis=alt.Axis(labelFontSize=18, titleFontSize=20),
+                scale=alt.Scale(domain=[0, 0.5]),
             ),
             column=alt.Column(
                 "target:N",
                 sort=sort_order,
                 header=alt.Header(
                     title=f"SGE Target{' (' + gene + ')' if gene else ''}",
-                    titleFontSize=18,
-                    labelFontSize=14,
+                    titleFontSize=22,
+                    labelFontSize=20,
                 ),
             ),
             color=alt.Color(
                 "rep:N",
-                sort=_REP_ORDER,
-                scale=alt.Scale(range=_REP_PALETTE, domain=_REP_ORDER),
                 legend=alt.Legend(
                     title="",
                     orient="bottom",
                     direction="horizontal",
-                    labelFontSize=14,
+                    labelFontSize=18,
                 ),
             ),
         )
-        .properties(width=35, height=160)
+        .properties(width=35, height=200)
         .configure_facet(spacing=5)
         .configure_axis(grid=False)
-        .configure_view(stroke=None)
     )
 
     return plot
