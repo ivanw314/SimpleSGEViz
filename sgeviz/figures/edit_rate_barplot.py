@@ -79,7 +79,6 @@ def make_plot(df: pd.DataFrame, gene: str = "") -> alt.Chart:
         .properties(width=35, height=200)
         .configure_facet(spacing=5)
         .configure_axis(grid=False)
-        .configure_view(stroke=None)
     )
 
     return plot
