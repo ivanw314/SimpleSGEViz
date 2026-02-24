@@ -75,6 +75,9 @@ def make_heatmap(df: pd.DataFrame, gene: str = "") -> alt.Chart:
         ),
     )
 
+    row_h = 34  # px per row: fits fontSize=20 text with ~14px breathing room
+    height = len(targets) * row_h
+
     rect = base.mark_rect().encode(
         color=alt.Color(
             "r_correlation:Q",
@@ -84,7 +87,7 @@ def make_heatmap(df: pd.DataFrame, gene: str = "") -> alt.Chart:
             ),
         ),
         tooltip=[alt.Tooltip("r_correlation", title="Pearson's r: ")],
-    ).properties(width=600, height=900)
+    ).properties(width=600, height=height)
 
     text_color = (
         alt.when(alt.datum.r_correlation > 0.5)
