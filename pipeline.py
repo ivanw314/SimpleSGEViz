@@ -66,6 +66,15 @@ def parse_args():
              "containing scores, thresholds, counts, and any optional datasets. "
              "Requires openpyxl.",
     )
+    parser.add_argument(
+        "--protein-length",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Known full protein length (aa). If the data covers fewer residues, "
+             "the x-axis will be extended to this length. If omitted, you will be "
+             "prompted interactively for each gene.",
+    )
     return parser.parse_args()
 
 
@@ -82,6 +91,16 @@ def main():
     print(f"Scanning for gene datasets in: {args.input_dir}")
     genes = io.find_genes(args.input_dir)
     print(f"  Found {len(genes)} gene(s): {', '.join(genes)}")
+
+    # --- Resolve protein lengths ---
+    # If --protein-length was not supplied, prompt interactively for each gene.
+    protein_lengths: dict[str, int | None] = {}
+    for gene in genes:
+        if args.protein_length is not None:
+            protein_lengths[gene] = args.protein_length
+        else:
+            raw = input(f"Protein length for {gene} (press Enter to estimate from data): ").strip()
+            protein_lengths[gene] = int(raw) if raw else None
 
     # --- Process each gene ---
     for gene, files in genes.items():
@@ -119,6 +138,7 @@ def main():
                 aa_heatmap.make_plot(
                     scores_df, gene=gene, thresholds=thresholds,
                     domains_path=domains_path,
+                    protein_length=protein_lengths[gene],
                 ),
                 args.output_dir / f"{gene}_aa_heatmap.{fmt}",
             )
