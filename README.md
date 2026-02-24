@@ -166,6 +166,7 @@ All files are written to `output_dir` with the gene name as a prefix.
 | `scores` | Full scores table with `Germline classification` (if ClinVar) and `gnomad_af` / `regeneron_af` (if AF files) merged in by `pos_id` |
 | `thresholds` | Non-functional and functional threshold values |
 | `counts` | Per-replicate SNV and deletion read counts |
+| `edit_rates` | Raw edit rates table (if edit rates file detected) |
 
 ---
 

@@ -243,10 +243,10 @@ def main():
                 })
                 merged_scores = pd.merge(merged_scores, af_wide, on="pos_id", how="left")
 
-            io.save_excel(
-                {"scores": merged_scores, "thresholds": thresh_df, "counts": counts_df},
-                args.output_dir / f"{gene}_data.xlsx",
-            )
+            sheets = {"scores": merged_scores, "thresholds": thresh_df, "counts": counts_df}
+            if edit_rates_df is not None:
+                sheets["edit_rates"] = edit_rates_df
+            io.save_excel(sheets, args.output_dir / f"{gene}_data.xlsx")
 
     print(f"\nDone. Figures saved to: {args.output_dir}")
 
