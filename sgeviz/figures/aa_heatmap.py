@@ -135,8 +135,9 @@ def _make_domain_cartoon(segments_df: pd.DataFrame, prot_length: int, width: int
     label_df["seg_px"] = (label_df["end"] - label_df["start"]) / prot_length * width
     label_df["txt_px"] = label_df["label"].str.len() * CHAR_W + PAD * 2
 
-    # Drop labels that don't fit within their own segment
-    label_df = label_df.loc[label_df["txt_px"] <= label_df["seg_px"]].reset_index(drop=True)
+    # Drop labels that don't fit within their own segment (tier-1 labels are exempt)
+    is_tier1 = label_df["tier"] == 1 if "tier" in label_df.columns else pd.Series(False, index=label_df.index)
+    label_df = label_df.loc[(label_df["txt_px"] <= label_df["seg_px"]) | is_tier1].reset_index(drop=True)
 
     # Tier-priority label suppression:
     #   1. Keep all tier-1 labels that fit (they take priority).
