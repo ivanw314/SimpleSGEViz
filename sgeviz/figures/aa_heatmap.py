@@ -69,16 +69,17 @@ def _load_domains(path, prot_length: int) -> pd.DataFrame:
     pos = 1
     for _, row in tier0.iterrows():
         if pos < row["start"]:
-            segments.append({"start": pos, "end": row["start"], "label": "", "color": "#CCCCCC"})
+            segments.append({"start": pos, "end": row["start"], "label": "", "color": "#CCCCCC", "tier": 0})
         segments.append({
             "start": row["start"],
             "end": row["end"],
             "label": row["region_name"],
             "color": row["color"],
+            "tier": 0,
         })
         pos = row["end"]
     if pos <= prot_length:
-        segments.append({"start": pos, "end": prot_length + 1, "label": "", "color": "#CCCCCC"})
+        segments.append({"start": pos, "end": prot_length + 1, "label": "", "color": "#CCCCCC", "tier": 0})
 
     # Insert tier-1 sub-features by splitting any overlapping parent segment
     tier1 = raw.loc[raw["tier"] == 1].sort_values("start").reset_index(drop=True)
@@ -91,18 +92,19 @@ def _load_domains(path, prot_length: int) -> pd.DataFrame:
             # Split: piece before sub-feature
             if seg["start"] < sub["start"]:
                 new_segs.append({"start": seg["start"], "end": sub["start"],
-                                 "label": seg["label"], "color": seg["color"]})
+                                 "label": seg["label"], "color": seg["color"], "tier": seg["tier"]})
             # The sub-feature itself (clipped to parent bounds)
             new_segs.append({
                 "start": max(seg["start"], sub["start"]),
                 "end": min(seg["end"], sub["end"]),
                 "label": sub["region_name"],
                 "color": sub["color"],
+                "tier": 1,
             })
             # Piece after sub-feature
             if seg["end"] > sub["end"]:
                 new_segs.append({"start": sub["end"], "end": seg["end"],
-                                 "label": seg["label"], "color": seg["color"]})
+                                 "label": seg["label"], "color": seg["color"], "tier": seg["tier"]})
         segments = new_segs
 
     return pd.DataFrame(segments)
@@ -136,17 +138,41 @@ def _make_domain_cartoon(segments_df: pd.DataFrame, prot_length: int, width: int
     # Drop labels that don't fit within their own segment
     label_df = label_df.loc[label_df["txt_px"] <= label_df["seg_px"]].reset_index(drop=True)
 
-    # Greedy left-to-right: suppress labels that overlap the previous visible one
+    # Tier-priority label suppression:
+    #   1. Keep all tier-1 labels that fit (they take priority).
+    #   2. Greedy left-to-right pass for tier-0 labels, skipping any that
+    #      would overlap a reserved tier-1 label slot.
     if not label_df.empty:
+        has_tier = "tier" in label_df.columns
+
+        # Collect reserved pixel ranges from tier-1 labels
+        tier1_ranges = []
+        if has_tier:
+            for _, row in label_df.loc[label_df["tier"] == 1].iterrows():
+                tier1_ranges.append((
+                    row["center_px"] - row["txt_px"] / 2,
+                    row["center_px"] + row["txt_px"] / 2,
+                ))
+
+        def _overlaps_tier1(left_px, right_px):
+            return any(left_px < r1 and right_px > l1 for l1, r1 in tier1_ranges)
+
         keep = []
+        # Always keep tier-1 labels
+        if has_tier:
+            keep.extend(label_df.loc[label_df["tier"] == 1].index.tolist())
+
+        # Greedy pass for tier-0 labels
+        tier0_labels = label_df.loc[label_df["tier"] == 0] if has_tier else label_df
         last_right_px = -float("inf")
-        for _, row in label_df.sort_values("center_px").iterrows():
+        for _, row in tier0_labels.sort_values("center_px").iterrows():
             left_px = row["center_px"] - row["txt_px"] / 2
             right_px = row["center_px"] + row["txt_px"] / 2
-            if left_px >= last_right_px:
+            if left_px >= last_right_px and not _overlaps_tier1(left_px, right_px):
                 keep.append(row.name)
                 last_right_px = right_px
-        label_df = label_df.loc[keep]
+
+        label_df = label_df.loc[label_df.index.isin(keep)]
 
     rects = (
         alt.Chart(df)
