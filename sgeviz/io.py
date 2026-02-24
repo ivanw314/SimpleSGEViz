@@ -9,9 +9,10 @@ def find_genes(input_dir: Path) -> dict:
     """Discover all gene datasets in the input directory.
 
     Detects genes by finding all *allscores.tsv files and extracting the gene
-    name from each filename (e.g. 20260129_RAD51Dallscores.tsv -> RAD51D).
-    Companion files (*modelparams.tsv, *snvcounts.tsv, *delcounts.tsv) are
-    then located using the gene name as a search key.
+    name from each filename. Both dot-separated (e.g. CTCF.allscores.tsv) and
+    run-together (e.g. 20260129_RAD51Dallscores.tsv) naming conventions are
+    supported. Companion files (*modelparams.tsv, *snvcounts.tsv, *delcounts.tsv)
+    are then located using the gene name as a search key.
 
     Returns a dict mapping gene name -> files dict, e.g.:
         {"RAD51D": {"all_scores": Path(...), "snv_counts": Path(...), ...}}
@@ -20,16 +21,19 @@ def find_genes(input_dir: Path) -> dict:
     if not allscores_files:
         raise FileNotFoundError(f"No '*allscores.tsv' files found in {input_dir}")
 
-    def find_one(pattern):
-        matches = list(input_dir.glob(pattern))
-        if not matches:
-            raise FileNotFoundError(f"Could not find '{pattern}' in {input_dir}")
-        if len(matches) > 1:
-            raise ValueError(
-                f"Multiple files match '{pattern}': "
-                + ", ".join(str(m) for m in matches)
-            )
-        return matches[0]
+    def find_one(*patterns):
+        for pattern in patterns:
+            matches = list(input_dir.glob(pattern))
+            if len(matches) == 1:
+                return matches[0]
+            if len(matches) > 1:
+                raise ValueError(
+                    f"Multiple files match '{pattern}': "
+                    + ", ".join(str(m) for m in matches)
+                )
+        raise FileNotFoundError(
+            f"Could not find any of {patterns} in {input_dir}"
+        )
 
     def find_optional(pattern):
         matches = list(input_dir.glob(pattern))
@@ -44,13 +48,14 @@ def find_genes(input_dir: Path) -> dict:
 
     genes = {}
     for allscores_path in allscores_files:
-        # e.g. '20260129_RAD51Dallscores' -> 'RAD51D'
-        gene = allscores_path.stem.split("_")[-1].replace("allscores", "")
+        # Handles both GENE.allscores.tsv and GENEallscores.tsv (with optional prefix)
+        stem_part = allscores_path.stem.split("_")[-1]
+        gene = stem_part.removesuffix(".allscores").removesuffix("allscores")
         genes[gene] = {
             "all_scores": allscores_path,
-            "model_params": find_one(f"*{gene}modelparams.tsv"),
-            "snv_counts": find_one(f"*{gene}snvcounts.tsv"),
-            "del_counts": find_one(f"*{gene}delcounts.tsv"),
+            "model_params": find_one(f"*{gene}modelparams.tsv", f"*{gene}.modelparams.tsv"),
+            "snv_counts": find_one(f"*{gene}snvcounts.tsv", f"*{gene}.snvcounts.tsv"),
+            "del_counts": find_one(f"*{gene}delcounts.tsv", f"*{gene}.delcounts.tsv"),
             # Optional allele frequency files (CSV or Excel)
             "gnomad": find_optional(f"*{gene}*gnomAD*"),
             "regeneron": find_optional(f"*{gene}*Regeneron*"),
