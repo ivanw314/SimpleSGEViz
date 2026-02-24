@@ -224,6 +224,9 @@ def _make_del_panel(
     del_df["ps_aa_start"] = ((del_df["_cds_start"] + 2) / 3).round(2)
     del_df["Consequence"] = del_df["Consequence"].replace(_DEL_CONSEQUENCE_MAP)
 
+    y_min = min(-0.5, del_df["score"].min())
+    y_max = max(0.1, del_df["score"].max())
+
     scatter = (
         alt.Chart(del_df)
         .mark_point(strokeWidth=3, size=75, opacity=1)
@@ -238,7 +241,7 @@ def _make_del_panel(
                 "score:Q",
                 title="Fitness Score",
                 axis=alt.Axis(titleFontSize=20, labelFontSize=18),
-                scale=alt.Scale(domain=[-0.5, 0.1]),
+                scale=alt.Scale(domain=[y_min, y_max]),
             ),
             color=alt.Color(
                 "Consequence:N",
