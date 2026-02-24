@@ -5,13 +5,12 @@ import pandas as pd
 
 
 _REP_MAP = {
-    "R1R4": "Rep. 1",
-    "R1R2R3": "Rep. 1",
-    "R2R5": "Rep. 2",
-    "R4R5R6": "Rep. 2",
-    "R3R6": "Rep. 3",
-    "R7R8R9": "Rep. 3",
+    "R1R4": "Rep. 1", "R1R2R3": "Rep. 1", "R1": "Rep. 1", "R4": "Rep. 1",
+    "R2R5": "Rep. 2", "R4R5R6": "Rep. 2", "R2": "Rep. 2", "R5": "Rep. 2",
+    "R3R6": "Rep. 3", "R7R8R9": "Rep. 3", "R3": "Rep. 3", "R6": "Rep. 3",
 }
+
+_REP_ORDER = ["Rep. 1", "Rep. 2", "Rep. 3"]
 
 
 def _natsort_key(s: str) -> list:
@@ -68,6 +67,7 @@ def make_plot(df: pd.DataFrame, gene: str = "") -> alt.Chart:
             ),
             color=alt.Color(
                 "rep:N",
+                sort=_REP_ORDER,
                 legend=alt.Legend(
                     title="",
                     orient="bottom",
@@ -79,6 +79,7 @@ def make_plot(df: pd.DataFrame, gene: str = "") -> alt.Chart:
         .properties(width=35, height=200)
         .configure_facet(spacing=5)
         .configure_axis(grid=False)
+        .configure_view(stroke=None)
     )
 
     return plot
