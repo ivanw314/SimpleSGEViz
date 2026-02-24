@@ -99,6 +99,7 @@ The pipeline detects genes automatically by scanning for `*allscores.tsv` files 
 | `*{gene}*ClinVar*SNV*` | ClinVar germline classification file (tab-delimited `.txt` from ClinVar download). File name matching is case-insensitive. |
 | `*{gene}*gnomAD*` | gnomAD allele frequencies (CSV or Excel) |
 | `*{gene}*Regeneron*` | Regeneron allele frequencies (CSV or Excel) |
+| `*{gene}*domain*` | Protein domain annotations (CSV or Excel). Adds a domain cartoon strip above the AA heatmap. File name matching is case-insensitive. See [Domain annotation file format](#domain-annotation-file-format) below. |
 
 ### Required columns in `*allscores.tsv`
 
@@ -137,7 +138,7 @@ All files are written to `output_dir` with the gene name as a prefix.
 | `{gene}_histogram_stripplot` | Score distribution histogram (top) and per-consequence strip plot (bottom) | Always |
 | `{gene}_correlation_heatmap` | Pairwise Pearson r heatmap across replicates | Always |
 | `{gene}_scores_across_gene` | Per-exon scatter plot of fitness scores vs genomic position | Always |
-| `{gene}_aa_heatmap` | Amino acid substitution heatmap (AA position × substitution) | If `amino_acid_change` column present |
+| `{gene}_aa_heatmap` | Amino acid substitution heatmap (AA position × substitution), optionally with a domain cartoon strip and 3bp deletion scatter panel | If `amino_acid_change` column present |
 | `{gene}_clinvar_strip` | Strip plot of SGE scores by ClinVar germline classification | If ClinVar file detected |
 | `{gene}_clinvar_roc` | ROC curve for B/LB vs P/LP classification using SGE score | If ClinVar file detected and both classes present |
 | `{gene}_maf_vs_score` | Binned heatmap of log10(allele frequency) vs fitness score | If gnomAD or Regeneron file detected |
@@ -171,3 +172,49 @@ Compound labels are normalized automatically:
 | `Conflicting classifications of pathogenicity` | `Uncertain significance` |
 
 Variants with any other classification are excluded.
+
+---
+
+## Domain annotation file format
+
+A domain annotation file adds a colored protein domain cartoon strip above the amino acid heatmap. It can be a CSV or Excel file and must contain these columns:
+
+| Column | Description |
+|---|---|
+| `region_name` | Label shown in the cartoon (e.g. `RecA`, `Walker A`) |
+| `aa_residues` | Residue range in `start-end` format (e.g. `114-209`) |
+
+**Optional columns:**
+
+| Column | Description |
+|---|---|
+| `color` | Hex color for the segment (e.g. `#B9DBF4`). Auto-assigned from a built-in palette if omitted. |
+| `tier` | `0` = main domain (default), `1` = sub-feature nested inside a tier-0 domain. |
+
+### Tier-0 vs tier-1 domains
+
+By default all rows are tier-0. Use `tier = 1` to mark sub-features (e.g. Walker A/B motifs inside a RecA domain). Tier-1 sub-features are rendered inline within the parent domain rather than in a separate row: the parent segment is split around the sub-feature, so the cartoon stays as a single strip.
+
+For example, if RecA spans residues 114–209 and Walker A spans 135–140, the cartoon renders as:
+
+```
+[RecA 114–135][Walker A 135–140][RecA 140–209]
+```
+
+Gaps between tier-0 domains are automatically filled with gray.
+
+### Label display rules
+
+- Labels are drawn above the colored strip.
+- Tier-1 labels are always shown (they take priority over tier-0 labels when space is tight).
+- A tier-0 label is hidden if it would overlap a tier-1 label or an adjacent tier-0 label. The segment is still visible and its name appears in the tooltip on hover.
+
+### Example file
+
+| region_name | aa_residues | tier | color |
+|---|---|---|---|
+| N-terminal domain | 1-113 | 0 | #B9DBF4 |
+| RecA | 114-209 | 0 | #C8DBC8 |
+| Walker A | 135-140 | 1 | #FF9A00 |
+| Walker B | 180-185 | 1 | #ffc976 |
+| C-terminal domain | 210-328 | 0 | #D5A6BD |

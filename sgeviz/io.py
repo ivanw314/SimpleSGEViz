@@ -36,7 +36,10 @@ def find_genes(input_dir: Path) -> dict:
         return matches[0] if len(matches) == 1 else None
 
     def find_optional_icase(pattern):
-        matches = [p for p in input_dir.iterdir() if fnmatch.fnmatch(p.name.lower(), pattern.lower())]
+        matches = [
+            p for p in input_dir.iterdir()
+            if not p.name.startswith("~$") and fnmatch.fnmatch(p.name.lower(), pattern.lower())
+        ]
         return matches[0] if len(matches) == 1 else None
 
     genes = {}
@@ -53,6 +56,8 @@ def find_genes(input_dir: Path) -> dict:
             "regeneron": find_optional(f"*{gene}*Regeneron*"),
             # Optional ClinVar SNV file (tab-delimited .txt from ClinVar download)
             "clinvar": find_optional_icase(f"*{gene}*clinvar*snv*"),
+            # Optional domain annotation file (Excel or CSV with region_name + aa_residues cols)
+            "domains": find_optional_icase(f"*{gene}*domain*"),
         }
 
     return genes

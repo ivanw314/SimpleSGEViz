@@ -221,6 +221,9 @@ def _rename_consequences(df: pd.DataFrame) -> pd.DataFrame:
     df.loc[df["Consequence"].str.contains("ing_var", na=False), "Consequence"] = "Splice Region"
     df.loc[df["Consequence"].str.contains("UTR", na=False), "Consequence"] = "UTR Variant"
     df.loc[df["Consequence"] == "start_lost", "Consequence"] = "Start Lost"
-    df.loc[df["var_type"] == "3bp_del", "Consequence"] = "3bp Deletion"
+    df.loc[
+        (df["var_type"] == "3bp_del") & (df["Consequence"] == "inframe_indel"),
+        "Consequence",
+    ] = "Inframe Indel"
 
     return df
