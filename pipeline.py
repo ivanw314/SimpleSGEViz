@@ -83,6 +83,14 @@ def parse_args():
         help="Pixels per amino acid column in the AA heatmap (default: 4). "
              "Reduce to produce a narrower figure.",
     )
+    parser.add_argument(
+        "--gene-name",
+        type=str,
+        default=None,
+        metavar="NAME",
+        help="Override the gene name used in figure titles and output filenames. "
+             "Cannot be used when multiple gene datasets are detected.",
+    )
     return parser.parse_args()
 
 
@@ -99,6 +107,16 @@ def main():
     print(f"Scanning for gene datasets in: {args.input_dir}")
     genes = io.find_genes(args.input_dir)
     print(f"  Found {len(genes)} gene(s): {', '.join(genes)}")
+
+    if args.gene_name is not None:
+        if len(genes) > 1:
+            sys.exit(
+                f"Error: --gene-name cannot be used when multiple gene datasets are detected "
+                f"({', '.join(genes)})."
+            )
+        original = next(iter(genes))
+        genes = {args.gene_name: genes[original]}
+        print(f"  Gene name overridden: '{original}' -> '{args.gene_name}'")
 
     # --- Resolve protein lengths ---
     # If --protein-length was not supplied, prompt interactively for each gene.
