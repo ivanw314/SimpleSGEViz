@@ -75,6 +75,14 @@ def parse_args():
              "the x-axis will be extended to this length. If omitted, you will be "
              "prompted interactively for each gene.",
     )
+    parser.add_argument(
+        "--px-per-aa",
+        type=int,
+        default=4,
+        metavar="N",
+        help="Pixels per amino acid column in the AA heatmap (default: 4). "
+             "Reduce to produce a narrower figure.",
+    )
     return parser.parse_args()
 
 
@@ -139,6 +147,7 @@ def main():
                     scores_df, gene=gene, thresholds=thresholds,
                     domains_path=domains_path,
                     protein_length=protein_lengths[gene],
+                    px_per_aa=args.px_per_aa,
                 ),
                 args.output_dir / f"{gene}_aa_heatmap.{fmt}",
             )

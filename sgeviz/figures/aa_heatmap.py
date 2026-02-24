@@ -281,6 +281,7 @@ def make_plot(
     thresholds=None,
     domains_path=None,
     protein_length: int | None = None,
+    px_per_aa: int = 3,
 ) -> alt.Chart:
     """Generate amino acid substitution heatmap of SGE fitness scores.
 
@@ -297,6 +298,8 @@ def make_plot(
         protein_length: Known full length of the protein. If provided and larger than
             the maximum position observed in the data, it will be used instead (the
             dataset may be incomplete and not cover all residues).
+        px_per_aa: Pixels allocated per amino acid column (default 3). Reduce to
+            produce a narrower figure.
     """
     alt.data_transformers.disable_max_rows()
 
@@ -321,7 +324,7 @@ def make_plot(
         prot_length = protein_length
     n = len(snv_df)
     n_del = int((df["var_type"] == "3bp_del").sum()) if "var_type" in df.columns else 0
-    width = 4 * prot_length
+    width = px_per_aa * prot_length
     height_per_row = 25
 
     # Missense min/mean rows (exclude stop gained)
