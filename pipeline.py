@@ -9,9 +9,10 @@ The input directory must contain:
     *snvcounts.tsv      Per-replicate SNV counts
     *delcounts.tsv      Per-replicate deletion counts
 
-Optional (allele frequency figures generated only if detected):
+Optional (figures generated only if detected):
     *{gene}*gnomAD*     gnomAD allele frequencies (CSV or Excel)
     *{gene}*Regeneron*  Regeneron allele frequencies (CSV or Excel)
+    *{gene}*editrates*  Library edit rates (TSV with target_rep + edit_rate columns)
 
 Outputs (saved to output_dir):
     {gene}_histogram_stripplot    Score distribution histogram + strip plot
@@ -21,6 +22,7 @@ Outputs (saved to output_dir):
     {gene}_clinvar_strip          ClinVar classification strip plot (if *{gene}*ClinVar*SNV* file present)
     {gene}_clinvar_roc            ROC curve for SGE score B/LB vs P/LP classification (if ClinVar file present)
     {gene}_maf_vs_score           Allele frequency vs. score heatmap (if AF files present)
+    {gene}_edit_rate_barplot      Library edit rate bar plot by target (if *{gene}*editrates* file present)
     {gene}_data.xlsx              Multi-sheet Excel workbook (if --excel flag is set)
 
 PNG and SVG output require vl-convert-python (pip install vl-convert-python).
@@ -34,7 +36,7 @@ from pathlib import Path
 import pandas as pd
 
 from sgeviz import io, process
-from sgeviz.figures import aa_heatmap, clinvar_strip, correlation, histogram_strip, maf_score, scores_gene
+from sgeviz.figures import aa_heatmap, clinvar_strip, correlation, edit_rate_barplot, histogram_strip, maf_score, scores_gene
 
 
 def parse_args():
@@ -197,6 +199,15 @@ def main():
             )
         else:
             print(f"[{gene}] No allele frequency files found, skipping MAF figure.")
+
+        edit_rates_df = io.load_edit_rates(files)
+        if edit_rates_df is not None:
+            io.save_figure(
+                edit_rate_barplot.make_plot(edit_rates_df, gene=gene),
+                args.output_dir / f"{gene}_edit_rate_barplot.{fmt}",
+            )
+        else:
+            print(f"[{gene}] No edit rates file found, skipping edit rate bar plot.")
 
         if args.excel:
             print(f"[{gene}] Writing Excel workbook...")

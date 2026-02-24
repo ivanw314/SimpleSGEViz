@@ -63,6 +63,8 @@ def find_genes(input_dir: Path) -> dict:
             "clinvar": find_optional_icase(f"*{gene}*clinvar*snv*"),
             # Optional domain annotation file (Excel or CSV with region_name + aa_residues cols)
             "domains": find_optional_icase(f"*{gene}*domain*"),
+            # Optional library edit rates file (*editrates*.tsv)
+            "edit_rates": find_optional_icase(f"*{gene}*editrates*"),
         }
 
     return genes
@@ -98,6 +100,18 @@ def load_counts(files: dict) -> pd.DataFrame:
         }
     )
     return df
+
+
+def load_edit_rates(files: dict):
+    """Load an edit rates TSV file if present.
+
+    Expected columns: target_rep, edit_rate.
+    Returns the raw DataFrame or None if no edit rates file was detected.
+    """
+    path = files.get("edit_rates")
+    if path is None:
+        return None
+    return pd.read_csv(path, sep="\t")
 
 
 def save_figure(chart: alt.Chart, path: Path):
