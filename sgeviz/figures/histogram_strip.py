@@ -33,6 +33,8 @@ def make_figures(df: pd.DataFrame, thresholds: list, gene: str = ""):
     n = len(df)
     nf_line, func_line = _threshold_rules(thresholds)
     selection = alt.selection_point(fields=["Consequence"], bind="legend")
+    zoom_hist = alt.selection_interval(bind="scales", name="zoom_hist")
+    zoom_strip = alt.selection_interval(bind="scales", name="zoom_strip")
 
     histogram = alt.Chart(df).mark_bar().encode(
         alt.X(
@@ -62,14 +64,14 @@ def make_figures(df: pd.DataFrame, thresholds: list, gene: str = ""):
             ),
         ),
         opacity=alt.condition(selection, alt.value(1), alt.value(0.2)),
-    ).add_params(selection).properties(
+    ).add_params(selection, zoom_hist).properties(
         width=800,
         height=200,
         title=alt.TitleParams(
             text=f"Distribution of SGE Scores{' (' + gene + ')' if gene else ''} (n = {n})",
             fontSize=22,
         ),
-    ).interactive()
+    )
 
     histogram = alt.layer(histogram, nf_line, func_line).resolve_scale(y="shared")
 
@@ -98,7 +100,7 @@ def make_figures(df: pd.DataFrame, thresholds: list, gene: str = ""):
             legend=None,
             scale=alt.Scale(range=PALETTE, domain=VARIANT_TYPES),
         ),
-    ).properties(width=800, height=200).interactive()
+    ).add_params(zoom_strip).properties(width=800, height=200)
 
     stripplot = alt.layer(stripplot, nf_line, func_line).resolve_scale(y="shared")
 

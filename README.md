@@ -55,7 +55,7 @@ You should see the usage message. If you get a "command not found" error, make s
 ## Usage
 
 ```
-sgeviz <input_dir> <output_dir> [--format html|png|svg] [--excel]
+sgeviz <input_dir> <output_dir> [--format html|png|svg] [--excel] [--protein-length N] [--px-per-aa N] [--gene-name NAME]
 ```
 
 > If you haven't installed via `pip install -e .`, you can also run `python pipeline.py` directly with the same arguments.
@@ -68,6 +68,9 @@ sgeviz <input_dir> <output_dir> [--format html|png|svg] [--excel]
 | `output_dir` | Directory where output figures will be saved (created if it does not exist) |
 | `--format` | Output format for figures: `html`, `png`, or `svg` (default: `png`) |
 | `--excel` | Also write a multi-sheet Excel workbook for each gene (requires `openpyxl`) |
+| `--protein-length N` | Known full protein length in amino acids. If the data covers fewer residues the x-axis is extended to this length. If omitted, you are prompted interactively for each gene. |
+| `--px-per-aa N` | Pixels allocated per amino acid column in the AA heatmap (default: `4`). Reduce to produce a narrower figure, e.g. `--px-per-aa 2`. |
+| `--gene-name NAME` | Override the gene name used in figure titles and output filenames. Useful when the name auto-detected from the filename differs from the preferred display name. Cannot be used when multiple gene datasets are detected in the same input directory. |
 
 ### Example
 
@@ -77,20 +80,31 @@ sgeviz ./data/BARD1/ ./output/BARD1/ --format png --excel
 
 The pipeline will scan `./data/BARD1/` for gene datasets, generate figures for each gene found, and write everything to `./output/BARD1/`.
 
+```bash
+sgeviz ./data/BRCA1/ ./output/BRCA1/ --px-per-aa 2 --gene-name "BRCA1 (exon 11)"
+```
+
+Produces a narrower AA heatmap and overrides the auto-detected gene name in all figure titles and output filenames.
+
 ---
 
 ## Input Files
 
-The pipeline detects genes automatically by scanning for `*allscores.tsv` files and extracting the gene name from each filename (e.g. `20260129_RAD51Dallscores.tsv` → `RAD51D`). Multiple genes can be processed in a single run by placing all their files in the same input directory.
+The pipeline detects genes automatically by scanning for `*allscores.tsv` files and extracting the gene name from each filename. Two naming conventions are supported:
+
+- **Run-together:** `20260129_RAD51Dallscores.tsv` → `RAD51D`
+- **Dot-separated:** `CTCF.allscores.tsv` → `CTCF`
+
+Multiple genes can be processed in a single run by placing all their files in the same input directory.
 
 ### Required
 
 | Pattern | Description |
 |---|---|
-| `*{gene}allscores.tsv` | Combined SNV and 3bp deletion fitness scores |
-| `*{gene}modelparams.tsv` | SGE model thresholds (non-functional and functional) |
-| `*{gene}snvcounts.tsv` | Per-replicate SNV read counts |
-| `*{gene}delcounts.tsv` | Per-replicate 3bp deletion read counts |
+| `*{gene}allscores.tsv` or `*{gene}.allscores.tsv` | Combined SNV and 3bp deletion fitness scores |
+| `*{gene}modelparams.tsv` or `*{gene}.modelparams.tsv` | SGE model thresholds (non-functional and functional) |
+| `*{gene}snvcounts.tsv` or `*{gene}.snvcounts.tsv` | Per-replicate SNV read counts |
+| `*{gene}delcounts.tsv` or `*{gene}.delcounts.tsv` | Per-replicate 3bp deletion read counts |
 
 ### Optional (auto-detected; figures generated only when present)
 
@@ -100,6 +114,8 @@ The pipeline detects genes automatically by scanning for `*allscores.tsv` files 
 | `*{gene}*gnomAD*` | gnomAD allele frequencies (CSV or Excel) |
 | `*{gene}*Regeneron*` | Regeneron allele frequencies (CSV or Excel) |
 | `*{gene}*domain*` | Protein domain annotations (CSV or Excel). Adds a domain cartoon strip above the AA heatmap. File name matching is case-insensitive. See [Domain annotation file format](#domain-annotation-file-format) below. |
+| `*{gene}*editrates*` | Library edit rates (tab-delimited `.tsv`). File name matching is case-insensitive. See [Edit rates file format](#edit-rates-file-format) below. |
+| `*{gene}*cartoon*` | Gene structure cartoon (Excel `.xlsx`). Generates a scalable exon cartoon with UTR/CDS distinction, ATG/stop markers, and compressed introns. If a `lib_coords` sheet is present a library amplicon track is added below. File name matching is case-insensitive. See [Gene cartoon file format](#gene-cartoon-file-format) below. |
 
 ### Required columns in `*allscores.tsv`
 
@@ -142,6 +158,9 @@ All files are written to `output_dir` with the gene name as a prefix.
 | `{gene}_clinvar_strip` | Strip plot of SGE scores by ClinVar germline classification | If ClinVar file detected |
 | `{gene}_clinvar_roc` | ROC curve for B/LB vs P/LP classification using SGE score | If ClinVar file detected and both classes present |
 | `{gene}_maf_vs_score` | Binned heatmap of log10(allele frequency) vs fitness score | If gnomAD or Regeneron file detected |
+| `{gene}_edit_rate_barplot` | Bar chart of library edit rates per SGE target, grouped by replicate | If edit rates file detected |
+| `{gene}_exon_cartoon` | Scalable exon structure cartoon with UTR/CDS regions, ATG/stop markers, and `//` break marks at compressed introns | If cartoon file detected (no `lib_coords` sheet) |
+| `{gene}_library_cartoon` | Exon structure cartoon stacked above a library amplicon coverage track | If cartoon file detected with `lib_coords` sheet |
 
 ### Excel workbook (with `--excel`)
 
@@ -150,6 +169,7 @@ All files are written to `output_dir` with the gene name as a prefix.
 | `scores` | Full scores table with `Germline classification` (if ClinVar) and `gnomad_af` / `regeneron_af` (if AF files) merged in by `pos_id` |
 | `thresholds` | Non-functional and functional threshold values |
 | `counts` | Per-replicate SNV and deletion read counts |
+| `edit_rates` | Raw edit rates table (if edit rates file detected) |
 
 ---
 
@@ -218,3 +238,69 @@ Gaps between tier-0 domains are automatically filled with gray.
 | Walker A | 135-140 | 1 | #FF9A00 |
 | Walker B | 180-185 | 1 | #ffc976 |
 | C-terminal domain | 210-328 | 0 | #D5A6BD |
+
+---
+
+## Edit rates file format
+
+The edit rates file is a tab-delimited `.tsv` with two columns:
+
+| Column | Description |
+|---|---|
+| `target_rep` | Combined SGE target and replicate identifier (e.g. `CTCF_X10A_R1R4_D05`) |
+| `edit_rate` | Fractional library edit rate for that target/replicate |
+
+The `target_rep` field is parsed as `{GENE}_X{target}_{rep}_{day}`. Replicate identifiers are mapped to display labels as follows:
+
+| Raw replicate string | Display label |
+|---|---|
+| `R1R4`, `R1R2R3`, `R1`, `R4` | Rep. 1 |
+| `R2R5`, `R4R5R6`, `R2`, `R5` | Rep. 2 |
+| `R3R6`, `R7R8R9`, `R3`, `R6` | Rep. 3 |
+
+### Example file (excerpt)
+
+```
+target_rep	edit_rate
+CTCF_X10A_R1R4_D05	0.118527
+CTCF_X10A_R2R5_D05	0.117841
+CTCF_X10A_R3R6_D05	0.121773
+CTCF_X3H_R1R4_D05	0.000138443
+```
+
+---
+
+## Gene cartoon file format
+
+The gene cartoon file is an Excel workbook (`.xlsx`) whose filename must contain `cartoon` (case-insensitive). Recommended naming: `{gene}.cartoon.xlsx` (e.g. `DARS2.cartoon.xlsx`). Avoid including `domain` in the filename — files matching both `*domain*` and `*cartoon*` are routed to the cartoon figure and will not be treated as domain annotation files. It generates one of two figures:
+
+- **`{gene}_exon_cartoon`** — an exon structure cartoon with UTR/CDS height distinction, ATG/stop codon markers, `//` break marks at compressed introns, and exon number labels.
+- **`{gene}_library_cartoon`** — the above exon track stacked above a library amplicon coverage track (generated when the `lib_coords` sheet is present).
+
+### Sheet: `exon_coords` (required)
+
+| Column | Description |
+|---|---|
+| `exon` | Exon label (e.g. `GENE_X1`) |
+| `start` | Genomic start coordinate |
+| `end` | Genomic end coordinate |
+
+### Sheet: `metadata` (required)
+
+A two-column table with `type` and `info` rows:
+
+| `type` value | `info` description |
+|---|---|
+| `atg` | Genomic position of the start codon (used to delimit 5′ UTR from CDS) |
+| `stop` | Genomic position of the stop codon (used to delimit CDS from 3′ UTR) |
+| `exon_color` | Hex fill color for exon rectangles (default: `#2E86C1`) |
+| `lib_color` | Hex fill color for library amplicons (default: `#888888`) |
+
+### Sheet: `lib_coords` (optional)
+
+| Column | Description |
+|---|---|
+| `start` | Genomic start of the library amplicon |
+| `end` | Genomic end of the library amplicon |
+
+When present, a library amplicon track is drawn below the exon cartoon. Regions covered by multiple overlapping amplicons are progressively darkened. A bracket above the band labels the estimated number of variants covered (`covered_bases × 3` SNVs + `covered_bases ÷ 3` 3-bp deletions), and the left margin shows the total number of amplicons.

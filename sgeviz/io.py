@@ -39,10 +39,12 @@ def find_genes(input_dir: Path) -> dict:
         matches = list(input_dir.glob(pattern))
         return matches[0] if len(matches) == 1 else None
 
-    def find_optional_icase(pattern):
+    def find_optional_icase(pattern, exclude=None):
         matches = [
             p for p in input_dir.iterdir()
-            if not p.name.startswith("~$") and fnmatch.fnmatch(p.name.lower(), pattern.lower())
+            if not p.name.startswith("~$")
+            and fnmatch.fnmatch(p.name.lower(), pattern.lower())
+            and (exclude is None or not fnmatch.fnmatch(p.name.lower(), exclude.lower()))
         ]
         return matches[0] if len(matches) == 1 else None
 
@@ -62,7 +64,12 @@ def find_genes(input_dir: Path) -> dict:
             # Optional ClinVar SNV file (tab-delimited .txt from ClinVar download)
             "clinvar": find_optional_icase(f"*{gene}*clinvar*snv*"),
             # Optional domain annotation file (Excel or CSV with region_name + aa_residues cols)
-            "domains": find_optional_icase(f"*{gene}*domain*"),
+            # Exclude files that also contain "cartoon" — those are gene-cartoon files, not domain files.
+            "domains": find_optional_icase(f"*{gene}*domain*", exclude=f"*cartoon*"),
+            # Optional library edit rates file (*editrates*.tsv)
+            "edit_rates": find_optional_icase(f"*{gene}*editrates*"),
+            # Optional gene cartoon file (Excel with exon_coords, metadata, and optionally lib_coords)
+            "cartoon": find_optional_icase(f"*{gene}*cartoon*"),
         }
 
     return genes
@@ -98,6 +105,38 @@ def load_counts(files: dict) -> pd.DataFrame:
         }
     )
     return df
+
+
+def load_cartoon(files: dict):
+    """Load a gene cartoon Excel file if present.
+
+    Expected sheets: ``exon_coords`` (required), ``metadata`` (required),
+    ``lib_coords`` (optional).
+
+    Returns ``(exon_df, lib_df, metadata_df)`` where ``lib_df`` is ``None``
+    when the ``lib_coords`` sheet is absent.  Returns ``None`` if no cartoon
+    file was detected.
+    """
+    path = files.get("cartoon")
+    if path is None:
+        return None
+    xl = pd.ExcelFile(path)
+    exon_df = xl.parse("exon_coords")
+    lib_df = xl.parse("lib_coords") if "lib_coords" in xl.sheet_names else None
+    meta_df = xl.parse("metadata")
+    return exon_df, lib_df, meta_df
+
+
+def load_edit_rates(files: dict):
+    """Load an edit rates TSV file if present.
+
+    Expected columns: target_rep, edit_rate.
+    Returns the raw DataFrame or None if no edit rates file was detected.
+    """
+    path = files.get("edit_rates")
+    if path is None:
+        return None
+    return pd.read_csv(path, sep="\t")
 
 
 def save_figure(chart: alt.Chart, path: Path):
