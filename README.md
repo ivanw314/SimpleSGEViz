@@ -156,6 +156,7 @@ All files are written to `output_dir` with the gene name as a prefix.
 | `{gene}_correlation_heatmap` | Pairwise Pearson r heatmap across replicates | Always |
 | `{gene}_scores_across_gene` | Per-exon scatter plot of fitness scores vs genomic position | Always |
 | `{gene}_aa_heatmap` | Amino acid substitution heatmap (AA position × substitution), optionally with a domain cartoon strip and 3bp deletion scatter panel | If `amino_acid_change` column present |
+| `{gene}_predictor_scatter` | Grid of scatter plots: each predictor score (AlphaMissense, REVEL, CADD, MutPred2) vs. fitness score, colored by consequence, with SGE and published predictor threshold lines | If any predictor column present (from VEP file or `*allscores.tsv`) |
 | `{gene}_clinvar_strip` | Strip plot of SGE scores by ClinVar germline classification | If ClinVar file detected |
 | `{gene}_clinvar_roc` | ROC curve for B/LB vs P/LP classification using SGE score | If ClinVar file detected and both classes present |
 | `{gene}_maf_vs_score` | Binned heatmap of log10(allele frequency) vs fitness score | If gnomAD or Regeneron file detected |
