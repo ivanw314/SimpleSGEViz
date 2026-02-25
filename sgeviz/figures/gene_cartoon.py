@@ -1,12 +1,14 @@
 """Genomic gene-structure and library-design cartoons.
 
 The coordinate system uses a non-linear x-axis where:
-  - Exon widths are proportional to their genomic length (equal px-per-bp).
+  - CDS exon widths are proportional to their genomic length (equal px-per-bp).
   - Intron widths are linearly scaled between ``intron_min_vw`` and
     ``intron_max_vw`` pixels based on their genomic length, clamped to
     [``intron_min_bp``, ``intron_max_bp``].  This keeps very large introns
     from dominating the figure while still showing size differences between
     smaller ones.
+  - UTR regions (5′ of ATG, 3′ of stop) are compressed the same way using
+    ``utr_min_vw`` / ``utr_max_vw`` pixel limits.
 
 A ``//`` marker is drawn on the backbone at the midpoint of every intron to
 signal the compressed / non-linear scale.
@@ -42,54 +44,103 @@ def _build_visual_segments(
     intron_max_bp: int,
     intron_min_vw: float,
     intron_max_vw: float,
+    utr_min_bp: int,
+    utr_max_bp: int,
+    utr_min_vw: float,
+    utr_max_vw: float,
+    atg_pos: int,
+    stop_pos: int,
 ) -> tuple[list[dict], float]:
     """Map genomic coordinates to visual x-coordinates.
 
+    Each exon is split at the ATG and stop positions into UTR and CDS
+    sub-segments.  UTR sub-segments receive a compressed visual width
+    (scaled between *utr_min_vw* and *utr_max_vw*); CDS sub-segments share
+    the remaining space proportionally.
+
     Returns ``(segments, total_vw)`` where each segment is a dict::
 
-        {gstart, gend, vstart, vend, kind ('exon'|'intron'), exon (str|None)}
+        {gstart, gend, vstart, vend, kind ('exon'|'utr'|'intron'), exon (str|None)}
 
     ``total_vw`` equals ``total_width`` by construction.
     """
     exons = exon_df.sort_values("start").reset_index(drop=True)
     n_exons = len(exons)
 
+    def _scale(bp: int, min_bp: int, max_bp: int, min_vw: float, max_vw: float) -> float:
+        t = max(0.0, min(1.0, (bp - min_bp) / max(max_bp - min_bp, 1)))
+        return min_vw + t * (max_vw - min_vw)
+
+    # Intron visual widths
     intron_vws: list[float] = []
     for idx in range(n_exons - 1):
-        gap_bp = exons.iloc[idx + 1]["start"] - exons.iloc[idx]["end"]
-        t = (gap_bp - intron_min_bp) / max(intron_max_bp - intron_min_bp, 1)
-        t = max(0.0, min(1.0, t))
-        intron_vws.append(intron_min_vw + t * (intron_max_vw - intron_min_vw))
+        gap_bp = int(exons.iloc[idx + 1]["start"]) - int(exons.iloc[idx]["end"])
+        intron_vws.append(_scale(gap_bp, intron_min_bp, intron_max_bp, intron_min_vw, intron_max_vw))
 
-    total_exon_vw = total_width - sum(intron_vws)
-    total_exon_bp = int((exons["end"] - exons["start"]).sum())
-    px_per_bp = total_exon_vw / total_exon_bp
+    # Split each exon into [5'UTR, CDS, 3'UTR] sub-segments
+    def _split_exon(gstart: int, gend: int) -> list[tuple[int, int, str]]:
+        subs: list[tuple[int, int, str]] = []
+        pos = gstart
+        if pos < atg_pos:
+            end = min(gend, atg_pos)
+            subs.append((pos, end, "utr"))
+            pos = end
+        if pos < gend and pos < stop_pos:
+            end = min(gend, stop_pos)
+            subs.append((pos, end, "exon"))
+            pos = end
+        if pos < gend:
+            subs.append((pos, gend, "utr"))
+        return subs
 
-    segments: list[dict] = []
-    vpos = 0.0
+    # Pre-compute UTR visual widths and CDS bp total
+    all_subs: list[tuple[int, int, int, str, str]] = []  # (exon_idx, g0, g1, kind, label)
     for idx in range(n_exons):
         row = exons.iloc[idx]
-        bp = int(row["end"] - row["start"])
-        evw = px_per_bp * bp
-        segments.append({
-            "gstart": int(row["start"]),
-            "gend": int(row["end"]),
-            "vstart": vpos,
-            "vend": vpos + evw,
-            "kind": "exon",
-            "exon": str(row["exon"]),
-        })
-        vpos += evw
+        for g0, g1, kind in _split_exon(int(row["start"]), int(row["end"])):
+            all_subs.append((idx, g0, g1, kind, str(row["exon"])))
+
+    utr_vw_map: dict[tuple[int, int, int], float] = {}
+    total_cds_bp = 0
+    for idx, g0, g1, kind, _ in all_subs:
+        bp = g1 - g0
+        if kind == "utr":
+            utr_vw_map[(idx, g0, g1)] = _scale(bp, utr_min_bp, utr_max_bp, utr_min_vw, utr_max_vw)
+        else:
+            total_cds_bp += bp
+
+    total_cds_vw = max(1.0, total_width - sum(intron_vws) - sum(utr_vw_map.values()))
+    px_per_bp = total_cds_vw / max(total_cds_bp, 1)
+
+    # Build segment list
+    segments: list[dict] = []
+    vpos = 0.0
+    intron_idx = 0
+    for idx in range(n_exons):
+        row = exons.iloc[idx]
+        for g0, g1, kind in _split_exon(int(row["start"]), int(row["end"])):
+            bp = g1 - g0
+            vw = utr_vw_map[(idx, g0, g1)] if kind == "utr" else px_per_bp * bp
+            segments.append({
+                "gstart": g0,
+                "gend": g1,
+                "vstart": vpos,
+                "vend": vpos + vw,
+                "kind": kind,
+                "exon": str(row["exon"]),
+            })
+            vpos += vw
         if idx < n_exons - 1:
             segments.append({
                 "gstart": int(row["end"]),
                 "gend": int(exons.iloc[idx + 1]["start"]),
                 "vstart": vpos,
-                "vend": vpos + intron_vws[idx],
+                "vend": vpos + intron_vws[intron_idx],
                 "kind": "intron",
                 "exon": None,
             })
-            vpos += intron_vws[idx]
+            vpos += intron_vws[intron_idx]
+            intron_idx += 1
 
     return segments, vpos
 
@@ -110,6 +161,7 @@ def _gv(pos: float, segments: list[dict]) -> float:
 
 def _make_exon_track(
     exon_segs: list[dict],
+    utr_segs: list[dict],
     intron_segs: list[dict],
     segments: list[dict],
     total_vw: float,
@@ -151,34 +203,15 @@ def _make_exon_track(
         )
     ))
 
-    # 2 & 3. Exon rectangles split into CDS / UTR sub-segments
-    cds_rows: list[dict] = []
-    utr_rows: list[dict] = []
-
-    for s in exon_segs:
-        g0, g1 = s["gstart"], s["gend"]
-        label = f"Exon {s['exon']}"
-        cds_s = max(g0, atg_pos)
-        cds_e = min(g1, stop_pos)
-
-        if g0 < atg_pos:
-            utr_rows.append({
-                "x": _gv(g0, segments),
-                "x2": _gv(min(g1, atg_pos), segments),
-                "exon": label,
-            })
-        if cds_s < cds_e:
-            cds_rows.append({
-                "x": _gv(cds_s, segments),
-                "x2": _gv(cds_e, segments),
-                "exon": label,
-            })
-        if g1 > stop_pos:
-            utr_rows.append({
-                "x": _gv(max(g0, stop_pos), segments),
-                "x2": _gv(g1, segments),
-                "exon": label,
-            })
+    # 2 & 3. Exon rectangles — sub-segments already split in _build_visual_segments
+    cds_rows = [
+        {"x": s["vstart"], "x2": s["vend"], "exon": f"Exon {s['exon']}"}
+        for s in exon_segs
+    ]
+    utr_rows = [
+        {"x": s["vstart"], "x2": s["vend"], "exon": f"UTR {s['exon']}"}
+        for s in utr_segs
+    ]
 
     if cds_rows:
         layers.append(_base(
@@ -206,9 +239,18 @@ def _make_exon_track(
         ))
 
     # 4. Exon number labels (below) + "Exon" row label in left margin
+    # Center each label over the full exon visual span (UTR + CDS sub-segments combined)
+    exon_vspan: dict[str, list[float]] = {}
+    for s in exon_segs + utr_segs:
+        name = str(s["exon"])
+        if name not in exon_vspan:
+            exon_vspan[name] = [s["vstart"], s["vend"]]
+        else:
+            exon_vspan[name][0] = min(exon_vspan[name][0], s["vstart"])
+            exon_vspan[name][1] = max(exon_vspan[name][1], s["vend"])
     label_df = pd.DataFrame([
-        {"center": (s["vstart"] + s["vend"]) / 2, "label": str(s["exon"])}
-        for s in exon_segs
+        {"center": (span[0] + span[1]) / 2, "label": name}
+        for name, span in sorted(exon_vspan.items(), key=lambda kv: kv[1][0])
     ])
     layers.append(_base(
         alt.Chart(label_df)
@@ -476,15 +518,19 @@ def make_exon_cartoon(
     intron_max_bp: int = 10_000,
     intron_min_vw: float = 20.0,
     intron_max_vw: float = 60.0,
+    utr_min_bp: int = 100,
+    utr_max_bp: int = 5_000,
+    utr_min_vw: float = 15.0,
+    utr_max_vw: float = 50.0,
     fontsize: int = 16,
 ) -> alt.Chart:
-    """Draw a scalable exon-structure cartoon with compressed introns.
+    """Draw a scalable exon-structure cartoon with compressed introns and UTRs.
 
-    Exon sizes are proportional to their genomic length.  Introns are scaled
-    between *intron_min_vw* and *intron_max_vw* pixels based on their genomic
-    length (clamped to [*intron_min_bp*, *intron_max_bp*]).
+    CDS exon widths are proportional to their genomic length.  Introns and
+    UTR regions are each independently scaled between their respective
+    *_min_vw* / *_max_vw* pixel limits based on genomic length, so very long
+    UTRs or introns don't dominate the figure.
 
-    UTR regions (before ATG, after stop) are drawn at reduced height.
     A ``//`` marker appears at the midpoint of every intron.
 
     Colors are read from *metadata_df* (``exon_color`` row); the default is
@@ -499,20 +545,28 @@ def make_exon_cartoon(
         intron_max_bp: introns longer than this get *intron_max_vw* px.
         intron_min_vw: minimum intron visual width in pixels.
         intron_max_vw: maximum intron visual width in pixels.
+        utr_min_bp: UTR regions shorter than this get *utr_min_vw* px.
+        utr_max_bp: UTR regions longer than this get *utr_max_vw* px.
+        utr_min_vw: minimum UTR visual width in pixels.
+        utr_max_vw: maximum UTR visual width in pixels.
         fontsize: base font size for all text labels; individual elements
             scale relative to this value.
     """
     meta = _parse_meta(metadata_df, exon_df)
     segments, total_vw = _build_visual_segments(
-        exon_df, width, intron_min_bp, intron_max_bp, intron_min_vw, intron_max_vw
+        exon_df, width,
+        intron_min_bp, intron_max_bp, intron_min_vw, intron_max_vw,
+        utr_min_bp, utr_max_bp, utr_min_vw, utr_max_vw,
+        meta["atg_pos"], meta["stop_pos"],
     )
     exon_segs = [s for s in segments if s["kind"] == "exon"]
+    utr_segs = [s for s in segments if s["kind"] == "utr"]
     intron_segs = [s for s in segments if s["kind"] == "intron"]
     x_scale = alt.Scale(domain=[-_LEFT_MARGIN, total_vw])
     chart_width = width + _LEFT_MARGIN
 
     track = _make_exon_track(
-        exon_segs, intron_segs, segments, total_vw,
+        exon_segs, utr_segs, intron_segs, segments, total_vw,
         meta["atg_pos"], meta["stop_pos"],
         x_scale, chart_width, meta["exon_color"], fontsize,
     )
@@ -528,6 +582,10 @@ def make_library_cartoon(
     intron_max_bp: int = 10_000,
     intron_min_vw: float = 20.0,
     intron_max_vw: float = 60.0,
+    utr_min_bp: int = 100,
+    utr_max_bp: int = 5_000,
+    utr_min_vw: float = 15.0,
+    utr_max_vw: float = 50.0,
     fontsize: int = 16,
 ) -> alt.Chart:
     """Draw an exon-structure cartoon with a library-amplicon track below.
@@ -547,20 +605,26 @@ def make_library_cartoon(
         width: visual width of the data area in pixels.
         intron_min_bp / intron_max_bp / intron_min_vw / intron_max_vw:
             intron compression parameters (see ``make_exon_cartoon``).
+        utr_min_bp / utr_max_bp / utr_min_vw / utr_max_vw:
+            UTR compression parameters (see ``make_exon_cartoon``).
         fontsize: base font size for all text labels; individual elements
             scale relative to this value.
     """
     meta = _parse_meta(metadata_df, exon_df)
     segments, total_vw = _build_visual_segments(
-        exon_df, width, intron_min_bp, intron_max_bp, intron_min_vw, intron_max_vw
+        exon_df, width,
+        intron_min_bp, intron_max_bp, intron_min_vw, intron_max_vw,
+        utr_min_bp, utr_max_bp, utr_min_vw, utr_max_vw,
+        meta["atg_pos"], meta["stop_pos"],
     )
     exon_segs = [s for s in segments if s["kind"] == "exon"]
+    utr_segs = [s for s in segments if s["kind"] == "utr"]
     intron_segs = [s for s in segments if s["kind"] == "intron"]
     x_scale = alt.Scale(domain=[-_LEFT_MARGIN, total_vw])
     chart_width = width + _LEFT_MARGIN
 
     exon_track = _make_exon_track(
-        exon_segs, intron_segs, segments, total_vw,
+        exon_segs, utr_segs, intron_segs, segments, total_vw,
         meta["atg_pos"], meta["stop_pos"],
         x_scale, chart_width, meta["exon_color"], fontsize,
     )

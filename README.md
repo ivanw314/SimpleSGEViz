@@ -274,7 +274,7 @@ CTCF_X3H_R1R4_D05	0.000138443
 
 The gene cartoon file is an Excel workbook (`.xlsx`) whose filename must contain `cartoon` (case-insensitive). Recommended naming: `{gene}.cartoon.xlsx` (e.g. `DARS2.cartoon.xlsx`). Avoid including `domain` in the filename — files matching both `*domain*` and `*cartoon*` are routed to the cartoon figure and will not be treated as domain annotation files. It generates one of two figures:
 
-- **`{gene}_exon_cartoon`** — an exon structure cartoon with UTR/CDS height distinction, ATG/stop codon markers, `//` break marks at compressed introns, and exon number labels.
+- **`{gene}_exon_cartoon`** — an exon structure cartoon with UTR/CDS height distinction, ATG/stop codon markers, `//` break marks at compressed introns, and exon number labels. Both introns and UTR regions are compressed using a min/max pixel-width scale, so very long UTRs or introns do not dominate the figure.
 - **`{gene}_library_cartoon`** — the above exon track stacked above a library amplicon coverage track (generated when the `lib_coords` sheet is present).
 
 ### Sheet: `exon_coords` (required)
