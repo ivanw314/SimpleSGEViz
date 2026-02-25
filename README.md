@@ -293,6 +293,7 @@ A two-column table with `type` and `info` rows:
 |---|---|
 | `atg` | Genomic position of the start codon (used to delimit 5′ UTR from CDS) |
 | `stop` | Genomic position of the stop codon (used to delimit CDS from 3′ UTR) |
+| `strand` | Gene strand: `plus` (default) or `minus`. For minus-strand genes all coordinates in all sheets should still be in standard genomic convention (start < end); the figure is automatically drawn 5′→3′ left-to-right. |
 | `exon_color` | Hex fill color for exon rectangles (default: `#2E86C1`) |
 | `lib_color` | Hex fill color for library amplicons (default: `#888888`) |
 

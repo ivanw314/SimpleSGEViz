@@ -18,13 +18,20 @@ Public functions
 make_exon_cartoon   – exon structure track only.
 make_library_cartoon – exon track stacked above a library-amplicon track.
 
-Colors and ATG/stop positions are read from a metadata DataFrame with columns
-``['type', 'info']``.  Recognised ``type`` values:
+Colors, ATG/stop positions, and strand are read from a metadata DataFrame
+with columns ``['type', 'info']``.  Recognised ``type`` values:
 
   atg        genomic position of the start codon
   stop       genomic position of the stop codon
+  strand     gene strand: 'plus' (default) or 'minus'
   exon_color hex color for exon rectangles  (default #2E86C1)
   lib_color  hex color for library amplicons (default #888888)
+
+Minus-strand genes (``strand: minus``) are handled by negating all
+coordinates internally so that the 5′ end of the transcript always appears
+on the left.  All input coordinates (exon_df, lib_df, atg, stop) should be
+provided in standard genomic convention (start < end, positive-strand
+numbering).
 """
 
 from __future__ import annotations
@@ -176,8 +183,8 @@ def _make_exon_track(
     TRACK_H = 97
     MARKER_Y = 1      # top of ATG/Stop text
     ARROW_Y = 19      # tip of ATG/Stop triangle (pointing down toward exon)
-    EXON_TOP = 28     # top of CDS rect
-    EXON_BOT = 68     # bottom of CDS rect
+    EXON_TOP = 32     # top of CDS rect
+    EXON_BOT = 64     # bottom of CDS rect
     UTR_TOP = 37      # top of UTR rect
     UTR_BOT = 59      # bottom of UTR rect
     BACKBONE_Y = (EXON_TOP + EXON_BOT) // 2
@@ -378,14 +385,14 @@ def _make_library_track(
 
     A bracket spanning the full covered region is drawn above the band.  The
     bracket opens in the middle to show the estimated variant count
-    (``covered_bases × 3`` SNVs + ``covered_bases // 3`` 3-bp deletions)
+    (``covered_bases × 3`` SNVs + ``covered_bases − 2`` 3-bp deletions)
     as a single "N Variants Designed" label.
     """
     # ── Layout ───────────────────────────────────────────────────────────
     BRACKET_Y = 20   # y of horizontal bracket arms
     V_PAD     = 32   # top of library band
-    TICK_H    = V_PAD - BRACKET_Y   # ticks run from bracket to band top
-    LANE_H    = 18
+    TICK_H    = V_PAD - BRACKET_Y - 5   # ticks stop 5px above the band top
+    LANE_H    = 26
     BOT_PAD   = 8
     TRACK_H   = V_PAD + LANE_H + BOT_PAD
     _STROKE   = "black"
@@ -428,7 +435,7 @@ def _make_library_track(
 
     # ── Bracket above the library band ────────────────────────────────────
     cov = _covered_bases(lib_df)
-    n_variants = cov * 3 + cov // 3
+    n_variants = cov * 3 + max(0, cov - 2)
     label = f"{n_variants:,} Variants Designed"
 
     all_vx = (
@@ -502,12 +509,57 @@ def _make_library_track(
 
 def _parse_meta(metadata_df: pd.DataFrame, exon_df: pd.DataFrame) -> dict:
     meta = dict(zip(metadata_df["type"].str.lower(), metadata_df["info"]))
+    strand = str(meta.get("strand", "plus")).strip().lower()
+    # For minus-strand genes the 5′ end (ATG) is at the highest genomic
+    # coordinate; adjust the fallback defaults accordingly.
+    if strand == "minus":
+        default_atg  = int(exon_df["end"].max())
+        default_stop = int(exon_df["start"].min())
+    else:
+        default_atg  = int(exon_df["start"].min())
+        default_stop = int(exon_df["end"].max())
     return {
-        "atg_pos": int(meta.get("atg", exon_df["start"].min())),
-        "stop_pos": int(meta.get("stop", exon_df["end"].max())),
+        "atg_pos":    int(meta.get("atg", default_atg)),
+        "stop_pos":   int(meta.get("stop", default_stop)),
         "exon_color": str(meta.get("exon_color", "#2E86C1")),
-        "lib_color": str(meta.get("lib_color", "#888888")),
+        "lib_color":  str(meta.get("lib_color", "#888888")),
+        "strand":     strand,
     }
+
+
+def _apply_strand(
+    exon_df: pd.DataFrame,
+    lib_df: pd.DataFrame | None,
+    atg_pos: int,
+    stop_pos: int,
+    strand: str,
+) -> tuple[pd.DataFrame, pd.DataFrame | None, int, int]:
+    """Convert genomic coordinates to transcription-order space.
+
+    For plus-strand genes all coordinates are returned unchanged.
+
+    For minus-strand genes every coordinate is negated so that the 5′ end of
+    the transcript (highest genomic position) becomes the most-negative value
+    and therefore sorts leftmost.  Exon start/end are swapped after negation
+    so that start < end is preserved in the transformed space.
+
+    ``_build_visual_segments`` and ``_gv`` are strand-agnostic and work
+    correctly on either original or negated coordinates.
+    """
+    if strand != "minus":
+        return exon_df, lib_df, atg_pos, stop_pos
+
+    exon_vgc = exon_df.copy()
+    exon_vgc["start"] = -exon_df["end"].values
+    exon_vgc["end"]   = -exon_df["start"].values
+
+    lib_vgc: pd.DataFrame | None = None
+    if lib_df is not None:
+        lib_vgc = lib_df.copy()
+        lib_vgc["start"] = -lib_df["end"].values
+        lib_vgc["end"]   = -lib_df["start"].values
+
+    return exon_vgc, lib_vgc, -atg_pos, -stop_pos
 
 
 def make_exon_cartoon(
@@ -553,11 +605,14 @@ def make_exon_cartoon(
             scale relative to this value.
     """
     meta = _parse_meta(metadata_df, exon_df)
+    exon_df_vgc, _, atg_vgc, stop_vgc = _apply_strand(
+        exon_df, None, meta["atg_pos"], meta["stop_pos"], meta["strand"]
+    )
     segments, total_vw = _build_visual_segments(
-        exon_df, width,
+        exon_df_vgc, width,
         intron_min_bp, intron_max_bp, intron_min_vw, intron_max_vw,
         utr_min_bp, utr_max_bp, utr_min_vw, utr_max_vw,
-        meta["atg_pos"], meta["stop_pos"],
+        atg_vgc, stop_vgc,
     )
     exon_segs = [s for s in segments if s["kind"] == "exon"]
     utr_segs = [s for s in segments if s["kind"] == "utr"]
@@ -567,7 +622,7 @@ def make_exon_cartoon(
 
     track = _make_exon_track(
         exon_segs, utr_segs, intron_segs, segments, total_vw,
-        meta["atg_pos"], meta["stop_pos"],
+        atg_vgc, stop_vgc,
         x_scale, chart_width, meta["exon_color"], fontsize,
     )
     return track.configure_axis(grid=False).configure_view(stroke=None)
@@ -611,11 +666,14 @@ def make_library_cartoon(
             scale relative to this value.
     """
     meta = _parse_meta(metadata_df, exon_df)
+    exon_df_vgc, lib_df_vgc, atg_vgc, stop_vgc = _apply_strand(
+        exon_df, lib_df, meta["atg_pos"], meta["stop_pos"], meta["strand"]
+    )
     segments, total_vw = _build_visual_segments(
-        exon_df, width,
+        exon_df_vgc, width,
         intron_min_bp, intron_max_bp, intron_min_vw, intron_max_vw,
         utr_min_bp, utr_max_bp, utr_min_vw, utr_max_vw,
-        meta["atg_pos"], meta["stop_pos"],
+        atg_vgc, stop_vgc,
     )
     exon_segs = [s for s in segments if s["kind"] == "exon"]
     utr_segs = [s for s in segments if s["kind"] == "utr"]
@@ -625,11 +683,11 @@ def make_library_cartoon(
 
     exon_track = _make_exon_track(
         exon_segs, utr_segs, intron_segs, segments, total_vw,
-        meta["atg_pos"], meta["stop_pos"],
+        atg_vgc, stop_vgc,
         x_scale, chart_width, meta["exon_color"], fontsize,
     )
     lib_track = _make_library_track(
-        lib_df, segments, x_scale, chart_width, meta["lib_color"], fontsize,
+        lib_df_vgc, segments, x_scale, chart_width, meta["lib_color"], fontsize,
     )
 
     return (
