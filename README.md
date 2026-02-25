@@ -314,7 +314,31 @@ A VEP file provides pathogenicity predictor scores for the AA heatmap sub-panels
 
 ### Generating the VEP file
 
-Export Ensembl VEP output as Excel (`.xlsx`) with the relevant plugins enabled. The pipeline expects columns produced by a standard VEP run with the following plugins:
+**Step 1 — Create a VCF from your allscores file:**
+
+```bash
+python make_vcf.py path/to/GENE.allscores.tsv
+```
+
+This writes a `GENE.allscores.vcf` in the same directory and prints the suggested output filename and next steps.
+
+**Step 2 — Run Ensembl VEP:**
+
+Upload the VCF to [https://www.ensembl.org/Tools/VEP](https://www.ensembl.org/Tools/VEP) with the following options enabled:
+
+- *Identifiers and frequency data*: Gene symbol, MANE
+- *Pathogenicity predictions*: AlphaMissense, CADD
+- *Plugins*: REVEL, SpliceAI
+
+Download the results as Excel (`.xlsx`).
+
+**Step 3 — Add to input directory:**
+
+Rename the downloaded file to `{gene}.vep.xlsx` (e.g. `BRCA1.vep.xlsx`) and place it in your pipeline input directory. The pipeline will detect and load it automatically.
+
+---
+
+The pipeline expects columns produced by a standard VEP run with the following plugins:
 
 | Plugin | Column(s) extracted | Renamed to |
 |---|---|---|

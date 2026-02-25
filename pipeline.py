@@ -14,7 +14,7 @@ Optional (figures generated only if detected):
     *{gene}*Regeneron*  Regeneron allele frequencies (CSV or Excel)
     *{gene}*editrates*  Library edit rates (TSV with target_rep + edit_rate columns)
     *{gene}*cartoon*    Gene cartoon Excel file (sheets: exon_coords, metadata, optionally lib_coords)
-    *{gene}*vep*        VEP tab output (--tab) with AlphaMissense + REVEL plugin scores
+    *{gene}*vep*        VEP Excel output (.xlsx) with AlphaMissense, REVEL, CADD, SpliceAI scores
 
 Outputs (saved to output_dir):
     {gene}_histogram_stripplot    Score distribution histogram + strip plot
