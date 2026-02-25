@@ -14,6 +14,7 @@ Optional (figures generated only if detected):
     *{gene}*Regeneron*  Regeneron allele frequencies (CSV or Excel)
     *{gene}*editrates*  Library edit rates (TSV with target_rep + edit_rate columns)
     *{gene}*cartoon*    Gene cartoon Excel file (sheets: exon_coords, metadata, optionally lib_coords)
+    *{gene}*vep*        VEP tab output (--tab) with AlphaMissense + REVEL plugin scores
 
 Outputs (saved to output_dir):
     {gene}_histogram_stripplot    Score distribution histogram + strip plot
@@ -137,6 +138,7 @@ def main():
     for gene, files in genes.items():
         print(f"\n[{gene}] Loading data...")
         scores_df, thresholds = process.load_scores(files)
+        scores_df = process.load_vep(files, scores_df)
         counts_df = io.load_counts(files)
         print(f"  {len(scores_df)} variants loaded")
 
