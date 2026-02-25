@@ -65,6 +65,8 @@ def find_genes(input_dir: Path) -> dict:
             "domains": find_optional_icase(f"*{gene}*domain*"),
             # Optional library edit rates file (*editrates*.tsv)
             "edit_rates": find_optional_icase(f"*{gene}*editrates*"),
+            # Optional gene cartoon file (Excel with exon_coords, metadata, and optionally lib_coords)
+            "cartoon": find_optional_icase(f"*{gene}*cartoon*"),
         }
 
     return genes
@@ -100,6 +102,26 @@ def load_counts(files: dict) -> pd.DataFrame:
         }
     )
     return df
+
+
+def load_cartoon(files: dict):
+    """Load a gene cartoon Excel file if present.
+
+    Expected sheets: ``exon_coords`` (required), ``metadata`` (required),
+    ``lib_coords`` (optional).
+
+    Returns ``(exon_df, lib_df, metadata_df)`` where ``lib_df`` is ``None``
+    when the ``lib_coords`` sheet is absent.  Returns ``None`` if no cartoon
+    file was detected.
+    """
+    path = files.get("cartoon")
+    if path is None:
+        return None
+    xl = pd.ExcelFile(path)
+    exon_df = xl.parse("exon_coords")
+    lib_df = xl.parse("lib_coords") if "lib_coords" in xl.sheet_names else None
+    meta_df = xl.parse("metadata")
+    return exon_df, lib_df, meta_df
 
 
 def load_edit_rates(files: dict):

@@ -115,6 +115,7 @@ Multiple genes can be processed in a single run by placing all their files in th
 | `*{gene}*Regeneron*` | Regeneron allele frequencies (CSV or Excel) |
 | `*{gene}*domain*` | Protein domain annotations (CSV or Excel). Adds a domain cartoon strip above the AA heatmap. File name matching is case-insensitive. See [Domain annotation file format](#domain-annotation-file-format) below. |
 | `*{gene}*editrates*` | Library edit rates (tab-delimited `.tsv`). File name matching is case-insensitive. See [Edit rates file format](#edit-rates-file-format) below. |
+| `*{gene}*cartoon*` | Gene structure cartoon (Excel `.xlsx`). Generates a scalable exon cartoon with UTR/CDS distinction, ATG/stop markers, and compressed introns. If a `lib_coords` sheet is present a library amplicon track is added below. File name matching is case-insensitive. See [Gene cartoon file format](#gene-cartoon-file-format) below. |
 
 ### Required columns in `*allscores.tsv`
 
@@ -158,6 +159,8 @@ All files are written to `output_dir` with the gene name as a prefix.
 | `{gene}_clinvar_roc` | ROC curve for B/LB vs P/LP classification using SGE score | If ClinVar file detected and both classes present |
 | `{gene}_maf_vs_score` | Binned heatmap of log10(allele frequency) vs fitness score | If gnomAD or Regeneron file detected |
 | `{gene}_edit_rate_barplot` | Bar chart of library edit rates per SGE target, grouped by replicate | If edit rates file detected |
+| `{gene}_exon_cartoon` | Scalable exon structure cartoon with UTR/CDS regions, ATG/stop markers, and `//` break marks at compressed introns | If cartoon file detected (no `lib_coords` sheet) |
+| `{gene}_library_cartoon` | Exon structure cartoon stacked above a library amplicon coverage track | If cartoon file detected with `lib_coords` sheet |
 
 ### Excel workbook (with `--excel`)
 
@@ -264,3 +267,40 @@ CTCF_X10A_R2R5_D05	0.117841
 CTCF_X10A_R3R6_D05	0.121773
 CTCF_X3H_R1R4_D05	0.000138443
 ```
+
+---
+
+## Gene cartoon file format
+
+The gene cartoon file is an Excel workbook (`.xlsx`) whose filename must contain `cartoon` (case-insensitive). It generates one of two figures:
+
+- **`{gene}_exon_cartoon`** — an exon structure cartoon with UTR/CDS height distinction, ATG/stop codon markers, `//` break marks at compressed introns, and exon number labels.
+- **`{gene}_library_cartoon`** — the above exon track stacked above a library amplicon coverage track (generated when the `lib_coords` sheet is present).
+
+### Sheet: `exon_coords` (required)
+
+| Column | Description |
+|---|---|
+| `exon` | Exon label (e.g. `GENE_X1`) |
+| `start` | Genomic start coordinate |
+| `end` | Genomic end coordinate |
+
+### Sheet: `metadata` (required)
+
+A two-column table with `type` and `info` rows:
+
+| `type` value | `info` description |
+|---|---|
+| `atg` | Genomic position of the start codon (used to delimit 5′ UTR from CDS) |
+| `stop` | Genomic position of the stop codon (used to delimit CDS from 3′ UTR) |
+| `exon_color` | Hex fill color for exon rectangles (default: `#2E86C1`) |
+| `lib_color` | Hex fill color for library amplicons (default: `#888888`) |
+
+### Sheet: `lib_coords` (optional)
+
+| Column | Description |
+|---|---|
+| `start` | Genomic start of the library amplicon |
+| `end` | Genomic end of the library amplicon |
+
+When present, a library amplicon track is drawn below the exon cartoon. Regions covered by multiple overlapping amplicons are progressively darkened. A bracket above the band labels the estimated number of variants covered (`covered_bases × 3` SNVs + `covered_bases ÷ 3` 3-bp deletions), and the left margin shows the total number of amplicons.

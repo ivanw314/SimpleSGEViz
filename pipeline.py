@@ -13,6 +13,7 @@ Optional (figures generated only if detected):
     *{gene}*gnomAD*     gnomAD allele frequencies (CSV or Excel)
     *{gene}*Regeneron*  Regeneron allele frequencies (CSV or Excel)
     *{gene}*editrates*  Library edit rates (TSV with target_rep + edit_rate columns)
+    *{gene}*cartoon*    Gene cartoon Excel file (sheets: exon_coords, metadata, optionally lib_coords)
 
 Outputs (saved to output_dir):
     {gene}_histogram_stripplot    Score distribution histogram + strip plot
@@ -23,6 +24,8 @@ Outputs (saved to output_dir):
     {gene}_clinvar_roc            ROC curve for SGE score B/LB vs P/LP classification (if ClinVar file present)
     {gene}_maf_vs_score           Allele frequency vs. score heatmap (if AF files present)
     {gene}_edit_rate_barplot      Library edit rate bar plot by target (if *{gene}*editrates* file present)
+    {gene}_exon_cartoon           Exon structure cartoon (if *{gene}*cartoon* file present, no lib_coords sheet)
+    {gene}_library_cartoon        Exon + library design cartoon (if *{gene}*cartoon* file with lib_coords sheet)
     {gene}_data.xlsx              Multi-sheet Excel workbook (if --excel flag is set)
 
 PNG and SVG output require vl-convert-python (pip install vl-convert-python).
@@ -36,7 +39,7 @@ from pathlib import Path
 import pandas as pd
 
 from sgeviz import io, process
-from sgeviz.figures import aa_heatmap, clinvar_strip, correlation, edit_rate_barplot, histogram_strip, maf_score, scores_gene
+from sgeviz.figures import aa_heatmap, clinvar_strip, correlation, edit_rate_barplot, gene_cartoon, histogram_strip, maf_score, scores_gene
 
 
 def parse_args():
@@ -199,6 +202,22 @@ def main():
             )
         else:
             print(f"[{gene}] No allele frequency files found, skipping MAF figure.")
+
+        cartoon_data = io.load_cartoon(files)
+        if cartoon_data is not None:
+            exon_df, lib_df, meta_df = cartoon_data
+            if lib_df is not None and not lib_df.empty:
+                cartoon_chart = gene_cartoon.make_library_cartoon(exon_df, lib_df, meta_df)
+                cartoon_name = f"{gene}_library_cartoon"
+            else:
+                cartoon_chart = gene_cartoon.make_exon_cartoon(exon_df, meta_df)
+                cartoon_name = f"{gene}_exon_cartoon"
+            io.save_figure(
+                cartoon_chart,
+                args.output_dir / f"{cartoon_name}.{fmt}",
+            )
+        else:
+            print(f"[{gene}] No cartoon file found, skipping gene cartoon.")
 
         edit_rates_df = io.load_edit_rates(files)
         if edit_rates_df is not None:

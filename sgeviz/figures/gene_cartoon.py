@@ -1,0 +1,575 @@
+"""Genomic gene-structure and library-design cartoons.
+
+The coordinate system uses a non-linear x-axis where:
+  - Exon widths are proportional to their genomic length (equal px-per-bp).
+  - Intron widths are linearly scaled between ``intron_min_vw`` and
+    ``intron_max_vw`` pixels based on their genomic length, clamped to
+    [``intron_min_bp``, ``intron_max_bp``].  This keeps very large introns
+    from dominating the figure while still showing size differences between
+    smaller ones.
+
+A ``//`` marker is drawn on the backbone at the midpoint of every intron to
+signal the compressed / non-linear scale.
+
+Public functions
+----------------
+make_exon_cartoon   – exon structure track only.
+make_library_cartoon – exon track stacked above a library-amplicon track.
+
+Colors and ATG/stop positions are read from a metadata DataFrame with columns
+``['type', 'info']``.  Recognised ``type`` values:
+
+  atg        genomic position of the start codon
+  stop       genomic position of the stop codon
+  exon_color hex color for exon rectangles  (default #2E86C1)
+  lib_color  hex color for library amplicons (default #888888)
+"""
+
+from __future__ import annotations
+
+import altair as alt
+import pandas as pd
+
+_LEFT_MARGIN = 80   # px reserved on the left for row labels ("Exon", "Library")
+
+
+# ── Coordinate transform helpers ──────────────────────────────────────────────
+
+def _build_visual_segments(
+    exon_df: pd.DataFrame,
+    total_width: int,
+    intron_min_bp: int,
+    intron_max_bp: int,
+    intron_min_vw: float,
+    intron_max_vw: float,
+) -> tuple[list[dict], float]:
+    """Map genomic coordinates to visual x-coordinates.
+
+    Returns ``(segments, total_vw)`` where each segment is a dict::
+
+        {gstart, gend, vstart, vend, kind ('exon'|'intron'), exon (str|None)}
+
+    ``total_vw`` equals ``total_width`` by construction.
+    """
+    exons = exon_df.sort_values("start").reset_index(drop=True)
+    n_exons = len(exons)
+
+    intron_vws: list[float] = []
+    for idx in range(n_exons - 1):
+        gap_bp = exons.iloc[idx + 1]["start"] - exons.iloc[idx]["end"]
+        t = (gap_bp - intron_min_bp) / max(intron_max_bp - intron_min_bp, 1)
+        t = max(0.0, min(1.0, t))
+        intron_vws.append(intron_min_vw + t * (intron_max_vw - intron_min_vw))
+
+    total_exon_vw = total_width - sum(intron_vws)
+    total_exon_bp = int((exons["end"] - exons["start"]).sum())
+    px_per_bp = total_exon_vw / total_exon_bp
+
+    segments: list[dict] = []
+    vpos = 0.0
+    for idx in range(n_exons):
+        row = exons.iloc[idx]
+        bp = int(row["end"] - row["start"])
+        evw = px_per_bp * bp
+        segments.append({
+            "gstart": int(row["start"]),
+            "gend": int(row["end"]),
+            "vstart": vpos,
+            "vend": vpos + evw,
+            "kind": "exon",
+            "exon": str(row["exon"]),
+        })
+        vpos += evw
+        if idx < n_exons - 1:
+            segments.append({
+                "gstart": int(row["end"]),
+                "gend": int(exons.iloc[idx + 1]["start"]),
+                "vstart": vpos,
+                "vend": vpos + intron_vws[idx],
+                "kind": "intron",
+                "exon": None,
+            })
+            vpos += intron_vws[idx]
+
+    return segments, vpos
+
+
+def _gv(pos: float, segments: list[dict]) -> float:
+    """Interpolate a genomic position to its visual x-coordinate."""
+    for seg in segments:
+        if seg["gstart"] <= pos <= seg["gend"]:
+            span = seg["gend"] - seg["gstart"]
+            if span == 0:
+                return seg["vstart"]
+            t = (pos - seg["gstart"]) / span
+            return seg["vstart"] + t * (seg["vend"] - seg["vstart"])
+    return segments[0]["vstart"] if pos < segments[0]["gstart"] else segments[-1]["vend"]
+
+
+# ── Internal track builders ───────────────────────────────────────────────────
+
+def _make_exon_track(
+    exon_segs: list[dict],
+    intron_segs: list[dict],
+    segments: list[dict],
+    total_vw: float,
+    atg_pos: int,
+    stop_pos: int,
+    x_scale: alt.Scale,
+    chart_width: int,
+    exon_color: str,
+    fontsize: int,
+) -> alt.Chart:
+    """Build the exon-structure layer (unconfigured, for composing)."""
+    TRACK_H = 97
+    MARKER_Y = 1      # top of ATG/Stop text
+    ARROW_Y = 19      # tip of ATG/Stop triangle (pointing down toward exon)
+    EXON_TOP = 28     # top of CDS rect
+    EXON_BOT = 68     # bottom of CDS rect
+    UTR_TOP = 37      # top of UTR rect
+    UTR_BOT = 59      # bottom of UTR rect
+    BACKBONE_Y = (EXON_TOP + EXON_BOT) // 2
+    LABEL_Y = 76      # exon-number labels below
+
+    _STROKE = "black"
+    _SW = 0.8
+
+    def _base(chart: alt.Chart) -> alt.Chart:
+        return chart.properties(width=chart_width, height=TRACK_H)
+
+    layers: list[alt.Chart] = []
+
+    # 1. Backbone line
+    backbone_df = pd.DataFrame({"x": [0.0], "x2": [total_vw]})
+    layers.append(_base(
+        alt.Chart(backbone_df)
+        .mark_rule(color="black", strokeWidth=1.5)
+        .encode(
+            x=alt.X("x:Q", scale=x_scale, axis=None),
+            x2="x2:Q",
+            y=alt.value(BACKBONE_Y),
+        )
+    ))
+
+    # 2 & 3. Exon rectangles split into CDS / UTR sub-segments
+    cds_rows: list[dict] = []
+    utr_rows: list[dict] = []
+
+    for s in exon_segs:
+        g0, g1 = s["gstart"], s["gend"]
+        label = f"Exon {s['exon']}"
+        cds_s = max(g0, atg_pos)
+        cds_e = min(g1, stop_pos)
+
+        if g0 < atg_pos:
+            utr_rows.append({
+                "x": _gv(g0, segments),
+                "x2": _gv(min(g1, atg_pos), segments),
+                "exon": label,
+            })
+        if cds_s < cds_e:
+            cds_rows.append({
+                "x": _gv(cds_s, segments),
+                "x2": _gv(cds_e, segments),
+                "exon": label,
+            })
+        if g1 > stop_pos:
+            utr_rows.append({
+                "x": _gv(max(g0, stop_pos), segments),
+                "x2": _gv(g1, segments),
+                "exon": label,
+            })
+
+    if cds_rows:
+        layers.append(_base(
+            alt.Chart(pd.DataFrame(cds_rows))
+            .mark_rect(fill=exon_color, stroke=_STROKE, strokeWidth=_SW)
+            .encode(
+                x=alt.X("x:Q", scale=x_scale, axis=None),
+                x2="x2:Q",
+                y=alt.value(EXON_TOP),
+                y2=alt.value(EXON_BOT),
+                tooltip=alt.Tooltip("exon:N", title="Region"),
+            )
+        ))
+    if utr_rows:
+        layers.append(_base(
+            alt.Chart(pd.DataFrame(utr_rows))
+            .mark_rect(fill=exon_color, stroke=_STROKE, strokeWidth=_SW)
+            .encode(
+                x=alt.X("x:Q", scale=x_scale, axis=None),
+                x2="x2:Q",
+                y=alt.value(UTR_TOP),
+                y2=alt.value(UTR_BOT),
+                tooltip=alt.Tooltip("exon:N", title="Region"),
+            )
+        ))
+
+    # 4. Exon number labels (below) + "Exon" row label in left margin
+    label_df = pd.DataFrame([
+        {"center": (s["vstart"] + s["vend"]) / 2, "label": str(s["exon"])}
+        for s in exon_segs
+    ])
+    layers.append(_base(
+        alt.Chart(label_df)
+        .mark_text(fontSize=fontsize - 1, fontWeight="bold", baseline="top")
+        .encode(
+            x=alt.X("center:Q", scale=x_scale, axis=None),
+            y=alt.value(LABEL_Y),
+            text="label:N",
+        )
+    ))
+    row_label_df = pd.DataFrame({"x": [-_LEFT_MARGIN / 2], "label": ["Exon"]})
+    layers.append(_base(
+        alt.Chart(row_label_df)
+        .mark_text(fontSize=fontsize - 1, fontWeight="bold", baseline="top", align="center")
+        .encode(
+            x=alt.X("x:Q", scale=x_scale, axis=None),
+            y=alt.value(LABEL_Y),
+            text="label:N",
+        )
+    ))
+
+    # 5. Intron '//' break marks
+    if intron_segs:
+        intron_df = pd.DataFrame({
+            "x": [(s["vstart"] + s["vend"]) / 2 for s in intron_segs]
+        })
+        layers.append(_base(
+            alt.Chart(intron_df)
+            .mark_text(text="//", fontSize=fontsize, color="black", baseline="middle")
+            .encode(
+                x=alt.X("x:Q", scale=x_scale, axis=None),
+                y=alt.value(BACKBONE_Y),
+            )
+        ))
+
+    # 6. ATG / Stop: text label above, then triangle pointing down
+    atg_vx = _gv(atg_pos, segments)
+    stop_vx = _gv(stop_pos, segments)
+    marker_df = pd.DataFrame({
+        "x": [atg_vx, stop_vx],
+        "label": ["ATG", "Stop"],
+        "color": ["#1a7a1a", "#b22222"],
+    })
+    layers.append(_base(
+        alt.Chart(marker_df)
+        .mark_text(fontSize=fontsize - 2, fontWeight="bold", baseline="top", align="center")
+        .encode(
+            x=alt.X("x:Q", scale=x_scale, axis=None),
+            y=alt.value(MARKER_Y),
+            text="label:N",
+            color=alt.Color("color:N", scale=None, legend=None),
+        )
+    ))
+    layers.append(_base(
+        alt.Chart(marker_df)
+        .mark_point(shape="triangle-down", filled=True, size=fontsize * 7)
+        .encode(
+            x=alt.X("x:Q", scale=x_scale, axis=None),
+            y=alt.value(ARROW_Y),
+            color=alt.Color("color:N", scale=None, legend=None),
+        )
+    ))
+
+    return alt.layer(*layers)
+
+
+def _hex_darken(hex_color: str, factor: float) -> str:
+    """Scale each RGB channel of a hex color by *factor* (0 = black, 1 = unchanged)."""
+    c = hex_color.lstrip("#")
+    r = min(255, int(int(c[0:2], 16) * factor))
+    g = min(255, int(int(c[2:4], 16) * factor))
+    b = min(255, int(int(c[4:6], 16) * factor))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _coverage_rects(lib_df: pd.DataFrame, segments: list[dict]) -> list[dict]:
+    """Compute per-segment coverage depth in visual x-coordinates.
+
+    Finds all visual x breakpoints (amplicon starts and ends), then counts
+    how many amplicons overlap each consecutive pair.  Returns a list of
+    dicts with keys ``x``, ``x2``, and ``depth`` (>= 1).
+    """
+    amplicons = [
+        (_gv(int(row["start"]), segments), _gv(int(row["end"]), segments))
+        for _, row in lib_df.iterrows()
+    ]
+    breakpoints = sorted({vx for vx_s, vx_e in amplicons for vx in (vx_s, vx_e)})
+
+    rects: list[dict] = []
+    for i in range(len(breakpoints) - 1):
+        x0, x1 = breakpoints[i], breakpoints[i + 1]
+        mid = (x0 + x1) / 2
+        depth = sum(1 for vx_s, vx_e in amplicons if vx_s <= mid <= vx_e)
+        if depth > 0:
+            rects.append({"x": x0, "x2": x1, "depth": depth})
+    return rects
+
+
+def _covered_bases(lib_df: pd.DataFrame) -> int:
+    """Total unique genomic bases covered by any library amplicon (union of intervals)."""
+    intervals = sorted(zip(lib_df["start"].astype(int), lib_df["end"].astype(int)))
+    merged: list[list[int]] = []
+    for start, end in intervals:
+        if merged and start < merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return sum(e - s for s, e in merged)
+
+
+def _make_library_track(
+    lib_df: pd.DataFrame,
+    segments: list[dict],
+    x_scale: alt.Scale,
+    chart_width: int,
+    lib_color: str,
+    fontsize: int,
+) -> alt.Chart:
+    """Build the library-amplicon coverage track (unconfigured, for composing).
+
+    All amplicons are drawn on a single horizontal band.  Where amplicons
+    overlap the fill is progressively darkened: depth-1 regions use
+    *lib_color* unchanged; each additional layer of coverage darkens the
+    color by a fixed factor toward black.
+
+    A bracket spanning the full covered region is drawn above the band.  The
+    bracket opens in the middle to show the estimated variant count
+    (``covered_bases × 3`` SNVs + ``covered_bases // 3`` 3-bp deletions)
+    as a single "N Variants Designed" label.
+    """
+    # ── Layout ───────────────────────────────────────────────────────────
+    BRACKET_Y = 20   # y of horizontal bracket arms
+    V_PAD     = 32   # top of library band
+    TICK_H    = V_PAD - BRACKET_Y   # ticks run from bracket to band top
+    LANE_H    = 18
+    BOT_PAD   = 8
+    TRACK_H   = V_PAD + LANE_H + BOT_PAD
+    _STROKE   = "black"
+    _SW       = 0.8
+
+    rects = _coverage_rects(lib_df, segments)
+    if not rects:
+        return alt.layer()
+
+    def _base(chart: alt.Chart) -> alt.Chart:
+        return chart.properties(width=chart_width, height=TRACK_H)
+
+    # ── Coverage rectangles ───────────────────────────────────────────────
+    max_depth = max(r["depth"] for r in rects)
+
+    def _color(depth: int) -> str:
+        if max_depth == 1:
+            return lib_color
+        factor = 1.0 - (depth - 1) / max_depth * 0.65
+        return _hex_darken(lib_color, factor)
+
+    rect_df = pd.DataFrame([
+        {"x": r["x"], "x2": r["x2"], "fill": _color(r["depth"]), "depth": r["depth"]}
+        for r in rects
+    ])
+    layers: list[alt.Chart] = [
+        _base(
+            alt.Chart(rect_df)
+            .mark_rect(stroke=_STROKE, strokeWidth=_SW)
+            .encode(
+                x=alt.X("x:Q", scale=x_scale, axis=None),
+                x2="x2:Q",
+                y=alt.value(V_PAD),
+                y2=alt.value(V_PAD + LANE_H),
+                color=alt.Color("fill:N", scale=None, legend=None),
+                tooltip=alt.Tooltip("depth:Q", title="Coverage"),
+            )
+        )
+    ]
+
+    # ── Bracket above the library band ────────────────────────────────────
+    cov = _covered_bases(lib_df)
+    n_variants = cov * 3 + cov // 3
+    label = f"{n_variants:,} Variants Designed"
+
+    all_vx = (
+        [_gv(int(r["start"]), segments) for _, r in lib_df.iterrows()]
+        + [_gv(int(r["end"]), segments) for _, r in lib_df.iterrows()]
+    )
+    x_lib_start = min(all_vx)
+    x_lib_end   = max(all_vx)
+    center      = (x_lib_start + x_lib_end) / 2
+    gap_half    = len(label) * 4.0 + 10
+
+    # Two horizontal arm segments (left and right of the text gap)
+    arms_df = pd.DataFrame([
+        {"x": x_lib_start, "x2": max(x_lib_start, center - gap_half)},
+        {"x": min(x_lib_end, center + gap_half), "x2": x_lib_end},
+    ])
+    layers.append(_base(
+        alt.Chart(arms_df)
+        .mark_rule(color="black", strokeWidth=1)
+        .encode(
+            x=alt.X("x:Q", scale=x_scale, axis=None),
+            x2="x2:Q",
+            y=alt.value(BRACKET_Y),
+        )
+    ))
+
+    # Vertical end-ticks at the outer ends of the bracket
+    ticks_df = pd.DataFrame({"x": [x_lib_start, x_lib_end]})
+    layers.append(_base(
+        alt.Chart(ticks_df)
+        .mark_rule(color="black", strokeWidth=1)
+        .encode(
+            x=alt.X("x:Q", scale=x_scale, axis=None),
+            y=alt.value(BRACKET_Y),
+            y2=alt.value(BRACKET_Y + TICK_H),
+        )
+    ))
+
+    # Label centered in the gap, vertically centered on the bracket arms
+    label_df = pd.DataFrame({"x": [center], "label": [label]})
+    layers.append(_base(
+        alt.Chart(label_df)
+        .mark_text(fontSize=fontsize, fontWeight="bold", baseline="middle", align="center")
+        .encode(
+            x=alt.X("x:Q", scale=x_scale, axis=None),
+            y=alt.value(BRACKET_Y),
+            text="label:N",
+        )
+    ))
+
+    # ── "N variant / libraries" row label in left margin ─────────────────
+    n_libs = len(lib_df)
+    mid_y = V_PAD + LANE_H // 2
+    row_x = -_LEFT_MARGIN / 2
+    for line, baseline in [(f"{n_libs} Variant", "bottom"), ("Libraries", "top")]:
+        line_df = pd.DataFrame({"x": [row_x], "label": [line]})
+        layers.append(_base(
+            alt.Chart(line_df)
+            .mark_text(fontSize=fontsize - 2, fontWeight="bold", baseline=baseline, align="center")
+            .encode(
+                x=alt.X("x:Q", scale=x_scale, axis=None),
+                y=alt.value(mid_y),
+                text="label:N",
+            )
+        ))
+
+    return alt.layer(*layers)
+
+
+# ── Public functions ──────────────────────────────────────────────────────────
+
+def _parse_meta(metadata_df: pd.DataFrame, exon_df: pd.DataFrame) -> dict:
+    meta = dict(zip(metadata_df["type"].str.lower(), metadata_df["info"]))
+    return {
+        "atg_pos": int(meta.get("atg", exon_df["start"].min())),
+        "stop_pos": int(meta.get("stop", exon_df["end"].max())),
+        "exon_color": str(meta.get("exon_color", "#2E86C1")),
+        "lib_color": str(meta.get("lib_color", "#888888")),
+    }
+
+
+def make_exon_cartoon(
+    exon_df: pd.DataFrame,
+    metadata_df: pd.DataFrame,
+    width: int = 800,
+    intron_min_bp: int = 100,
+    intron_max_bp: int = 10_000,
+    intron_min_vw: float = 20.0,
+    intron_max_vw: float = 60.0,
+    fontsize: int = 16,
+) -> alt.Chart:
+    """Draw a scalable exon-structure cartoon with compressed introns.
+
+    Exon sizes are proportional to their genomic length.  Introns are scaled
+    between *intron_min_vw* and *intron_max_vw* pixels based on their genomic
+    length (clamped to [*intron_min_bp*, *intron_max_bp*]).
+
+    UTR regions (before ATG, after stop) are drawn at reduced height.
+    A ``//`` marker appears at the midpoint of every intron.
+
+    Colors are read from *metadata_df* (``exon_color`` row); the default is
+    ``#2E86C1``.
+
+    Args:
+        exon_df: columns ``['exon', 'start', 'end']`` – genomic coordinates.
+        metadata_df: columns ``['type', 'info']`` with rows ``'atg'``,
+            ``'stop'``, and optionally ``'exon_color'``.
+        width: visual width of the data area in pixels.
+        intron_min_bp: introns shorter than this get *intron_min_vw* px.
+        intron_max_bp: introns longer than this get *intron_max_vw* px.
+        intron_min_vw: minimum intron visual width in pixels.
+        intron_max_vw: maximum intron visual width in pixels.
+        fontsize: base font size for all text labels; individual elements
+            scale relative to this value.
+    """
+    meta = _parse_meta(metadata_df, exon_df)
+    segments, total_vw = _build_visual_segments(
+        exon_df, width, intron_min_bp, intron_max_bp, intron_min_vw, intron_max_vw
+    )
+    exon_segs = [s for s in segments if s["kind"] == "exon"]
+    intron_segs = [s for s in segments if s["kind"] == "intron"]
+    x_scale = alt.Scale(domain=[-_LEFT_MARGIN, total_vw])
+    chart_width = width + _LEFT_MARGIN
+
+    track = _make_exon_track(
+        exon_segs, intron_segs, segments, total_vw,
+        meta["atg_pos"], meta["stop_pos"],
+        x_scale, chart_width, meta["exon_color"], fontsize,
+    )
+    return track.configure_axis(grid=False).configure_view(stroke=None)
+
+
+def make_library_cartoon(
+    exon_df: pd.DataFrame,
+    lib_df: pd.DataFrame,
+    metadata_df: pd.DataFrame,
+    width: int = 800,
+    intron_min_bp: int = 100,
+    intron_max_bp: int = 10_000,
+    intron_min_vw: float = 20.0,
+    intron_max_vw: float = 60.0,
+    fontsize: int = 16,
+) -> alt.Chart:
+    """Draw an exon-structure cartoon with a library-amplicon track below.
+
+    The two tracks share the same compressed x-axis.  Overlapping amplicons
+    are automatically stacked into lanes using a greedy left-to-right packing
+    algorithm.
+
+    Colors are read from *metadata_df* (``exon_color`` and ``lib_color``
+    rows); defaults are ``#2E86C1`` and ``#888888`` respectively.
+
+    Args:
+        exon_df: columns ``['exon', 'start', 'end']`` – genomic coordinates.
+        lib_df: columns ``['start', 'end']`` – amplicon genomic coordinates.
+        metadata_df: columns ``['type', 'info']`` with rows ``'atg'``,
+            ``'stop'``, ``'exon_color'``, and ``'lib_color'``.
+        width: visual width of the data area in pixels.
+        intron_min_bp / intron_max_bp / intron_min_vw / intron_max_vw:
+            intron compression parameters (see ``make_exon_cartoon``).
+        fontsize: base font size for all text labels; individual elements
+            scale relative to this value.
+    """
+    meta = _parse_meta(metadata_df, exon_df)
+    segments, total_vw = _build_visual_segments(
+        exon_df, width, intron_min_bp, intron_max_bp, intron_min_vw, intron_max_vw
+    )
+    exon_segs = [s for s in segments if s["kind"] == "exon"]
+    intron_segs = [s for s in segments if s["kind"] == "intron"]
+    x_scale = alt.Scale(domain=[-_LEFT_MARGIN, total_vw])
+    chart_width = width + _LEFT_MARGIN
+
+    exon_track = _make_exon_track(
+        exon_segs, intron_segs, segments, total_vw,
+        meta["atg_pos"], meta["stop_pos"],
+        x_scale, chart_width, meta["exon_color"], fontsize,
+    )
+    lib_track = _make_library_track(
+        lib_df, segments, x_scale, chart_width, meta["lib_color"], fontsize,
+    )
+
+    return (
+        alt.vconcat(exon_track, lib_track, spacing=8)
+        .configure_axis(grid=False)
+        .configure_view(stroke=None)
+    )
