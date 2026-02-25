@@ -70,7 +70,7 @@ def find_genes(input_dir: Path) -> dict:
             "edit_rates": find_optional_icase(f"*{gene}*editrates*"),
             # Optional gene cartoon file (Excel with exon_coords, metadata, and optionally lib_coords)
             "cartoon": find_optional_icase(f"*{gene}*cartoon*"),
-            # Optional VEP tab output file for AlphaMissense + REVEL scores
+            # Optional VEP output file (Excel .xlsx or tab-delimited .txt) for predictor scores
             "vep": find_optional_icase(f"*{gene}*vep*"),
         }
 

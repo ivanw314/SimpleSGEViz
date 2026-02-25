@@ -231,7 +231,8 @@ def load_vep(files: dict, scores_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _read_vep(path: Path) -> pd.DataFrame:
-    """Parse a VEP Excel output file and return per-variant predictor scores.
+    """Parse a VEP output file (Excel or tab-delimited text) and return per-variant
+    predictor scores.
 
     Expected columns (all optional except Location and Allele):
       Location         — chr:pos-pos (e.g. 2:214728633-214728633)
@@ -241,10 +242,17 @@ def _read_vep(path: Path) -> pd.DataFrame:
       CADD_PHRED       — CADD phred score     → cadd_score
       SpliceAI_pred_DS_AG/AL/DG/DL — max → max_SpliceAI
 
+    Supports both Excel (.xlsx) and tab-delimited text (.txt, .tsv, .csv)
+    output formats from the Ensembl VEP web tool. In the text format, missing
+    values are represented as '-' and are converted to NaN.
+
     When multiple transcript rows share the same pos_id, the first row is
     kept (VEP typically outputs MANE_SELECT transcripts first).
     """
-    df = pd.read_excel(path)
+    if path.suffix.lower() == ".xlsx":
+        df = pd.read_excel(path)
+    else:
+        df = pd.read_csv(path, sep="\t", na_values="-", keep_default_na=True)
     # Strip leading # from first column name if present
     df.columns = [df.columns[0].lstrip("#")] + list(df.columns[1:])
 

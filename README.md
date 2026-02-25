@@ -116,7 +116,7 @@ Multiple genes can be processed in a single run by placing all their files in th
 | `*{gene}*domain*` | Protein domain annotations (CSV or Excel). Adds a domain cartoon strip above the AA heatmap. File name matching is case-insensitive. See [Domain annotation file format](#domain-annotation-file-format) below. |
 | `*{gene}*editrates*` | Library edit rates (tab-delimited `.tsv`). File name matching is case-insensitive. See [Edit rates file format](#edit-rates-file-format) below. |
 | `*{gene}*cartoon*` | Gene structure cartoon (Excel `.xlsx`). Generates a scalable exon cartoon with UTR/CDS distinction, ATG/stop markers, and compressed introns. If a `lib_coords` sheet is present a library amplicon track is added below. File name matching is case-insensitive. See [Gene cartoon file format](#gene-cartoon-file-format) below. |
-| `*{gene}*vep*` | VEP Excel output (`.xlsx`). AlphaMissense, REVEL, CADD, and SpliceAI scores are extracted and merged into the variant data, enabling the VEP predictor sub-panels in the AA heatmap. File name matching is case-insensitive. See [VEP file format](#vep-file-format) below. |
+| `*{gene}*vep*` | VEP output — Excel (`.xlsx`) or tab-delimited text (`.txt`). AlphaMissense, REVEL, CADD, and SpliceAI scores are extracted and merged into the variant data, enabling the VEP predictor sub-panels in the AA heatmap. File name matching is case-insensitive. See [VEP file format](#vep-file-format) below. |
 
 ### Required columns in `*allscores.tsv`
 
@@ -310,7 +310,7 @@ When present, a library amplicon track is drawn below the exon cartoon. Regions 
 
 ## VEP file format
 
-A VEP file provides pathogenicity predictor scores for the AA heatmap sub-panels. Place a VEP Excel output file matching `*{gene}*vep*` (e.g. `BRCA1.vep.xlsx`) in the input directory.
+A VEP file provides pathogenicity predictor scores for the AA heatmap sub-panels. Place a VEP output file matching `*{gene}*vep*` (e.g. `BRCA1.vep.xlsx` or `BRCA1.VEP.txt`) in the input directory. Both Excel (`.xlsx`) and tab-delimited text (`.txt`) output formats from the Ensembl VEP web tool are supported.
 
 ### Generating the VEP file
 
@@ -330,7 +330,7 @@ Upload the VCF to [https://www.ensembl.org/Tools/VEP](https://www.ensembl.org/To
 - *Pathogenicity predictions*: AlphaMissense, CADD
 - *Plugins*: REVEL, SpliceAI
 
-Download the results as Excel (`.xlsx`).
+Download the results as Excel (`.xlsx`) or plain text (`.txt`) — both formats are supported.
 
 **Step 3 — Add to input directory:**
 

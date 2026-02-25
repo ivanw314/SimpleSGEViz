@@ -21,7 +21,7 @@ Example:
 
 Next steps after running this script
 -------------------------------------
-1. Go to https://www.ensembl.org/Tools/VEP
+1. Go to https://www.ensembl.org/Tools/VEP (ensure theg enome build is set to GRCh38).
 
 2. Upload the generated .vcf file.
 
@@ -32,17 +32,15 @@ Next steps after running this script
 4. Under "Pathogenicity predictions", enable:
       - AlphaMissense
       - CADD
-
-5. Under "Plugins", enable:
       - REVEL
-      - SpliceAI
+    - SpliceAI
 
-6. Run VEP, then download the results as Excel (.xlsx).
+5. Run VEP, then download the results as Excel (.xlsx).
 
-7. Rename the downloaded file to match the pattern: {gene}.vep.xlsx
+6. Rename the downloaded file to match the pattern: {gene}.vep.xlsx
    e.g. BRCA1.vep.xlsx
 
-8. Place it in the same input directory as your allscores.tsv.
+7. Place it in the same input directory as your allscores.tsv.
    The pipeline will detect and load it automatically.
 """
 
@@ -96,8 +94,8 @@ def make_vcf(allscores_path: Path, output_path: Path):
     print(f"Total variants:   {len(df)}")
     print()
     print("Next steps:")
-    print("  1. Upload the VCF to https://www.ensembl.org/Tools/VEP")
-    print("  2. Enable plugins: AlphaMissense, CADD, REVEL, SpliceAI")
+    print("  1. Upload the VCF to https://www.ensembl.org/Tools/VEP (ensure genome build is GRCh38)")
+    print("  2. Enable pathogenicity predictions: AlphaMissense, CADD, REVEL, SpliceAI")
     print("  3. Download results as Excel (.xlsx)")
     print(f"  4. Rename to {allscores_path.stem.split('allscores')[0].rstrip('.')}.vep.xlsx")
     print("  5. Place in your pipeline input directory")
