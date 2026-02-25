@@ -112,30 +112,44 @@ def make_plot(df: pd.DataFrame, thresholds: list, gene: str = "") -> alt.Chart |
             ),
         ).interactive()
 
-        # SGE threshold lines (vertical)
-        nf_line = alt.Chart(panel_df).mark_rule(
-            color="black", strokeDash=[8, 8], strokeWidth=1.5
-        ).encode(x=alt.datum(thresholds[0]))
+        # SGE threshold rectangles (vertical bands, behind scatter)
+        nf_rect = alt.Chart(panel_df).mark_rect(
+            color="#d62728", opacity=0.08, clip=True
+        ).encode(
+            x=alt.datum(-9999),
+            x2=alt.datum(thresholds[0]),
+        )
 
-        func_line = alt.Chart(panel_df).mark_rule(
-            color="#888888", strokeDash=[8, 8], strokeWidth=1.5
-        ).encode(x=alt.datum(thresholds[1]))
+        func_rect = alt.Chart(panel_df).mark_rect(
+            color="#006616", opacity=0.08, clip=True
+        ).encode(
+            x=alt.datum(thresholds[1]),
+            x2=alt.datum(9999),
+        )
 
-        layers = [scatter, nf_line, func_line]
+        layers = [nf_rect, func_rect]
 
-        # Predictor threshold lines (horizontal) where published thresholds exist
+        # Predictor threshold rectangles (horizontal bands) where published thresholds exist
         if col in _PRED_THRESHOLDS:
             benign_thresh, path_thresh = _PRED_THRESHOLDS[col]
             layers.append(
-                alt.Chart(panel_df).mark_rule(
-                    color="#1a7abf", strokeDash=[4, 4], strokeWidth=1.5
-                ).encode(y=alt.datum(benign_thresh))
+                alt.Chart(panel_df).mark_rect(
+                    color="#1a7abf", opacity=0.1, clip=True
+                ).encode(
+                    y=alt.datum(-9999),
+                    y2=alt.datum(benign_thresh),
+                )
             )
             layers.append(
-                alt.Chart(panel_df).mark_rule(
-                    color="#d62728", strokeDash=[4, 4], strokeWidth=1.5
-                ).encode(y=alt.datum(path_thresh))
+                alt.Chart(panel_df).mark_rect(
+                    color="#d62728", opacity=0.1, clip=True
+                ).encode(
+                    y=alt.datum(path_thresh),
+                    y2=alt.datum(9999),
+                )
             )
+
+        layers.append(scatter)
 
         panels.append(alt.layer(*layers))
 
