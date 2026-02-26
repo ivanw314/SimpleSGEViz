@@ -131,7 +131,7 @@ def _load_exons(path) -> pd.DataFrame | None:
 
 def _make_exon_cartoon(exon_df: pd.DataFrame, prot_length: int, width: int) -> alt.Chart:
     """White rect strip showing exon boundaries with sequential exon numbers."""
-    RECT_H = 20
+    RECT_H = 26
     x_scale = alt.Scale(domain=[1, prot_length + 1])
 
     rects = (
@@ -151,7 +151,7 @@ def _make_exon_cartoon(exon_df: pd.DataFrame, prot_length: int, width: int) -> a
 
     labels = (
         alt.Chart(exon_df)
-        .mark_text(fontSize=11, fontWeight="bold", baseline="middle", align="center")
+        .mark_text(fontSize=14, fontWeight="bold", baseline="middle", align="center")
         .encode(
             x=alt.X("center:Q", axis=None, scale=x_scale),
             text="label:N",
@@ -168,10 +168,10 @@ def _make_domain_cartoon(segments_df: pd.DataFrame, prot_length: int, width: int
     Labels that are too wide for their segment, or that would overlap a
     neighbour, are suppressed. The segment is still rendered and has a tooltip.
     """
-    LABEL_H = 18   # pixels reserved above the colored strip for labels
-    RECT_H = 25    # height of the colored strip itself
+    LABEL_H = 22   # pixels reserved above the colored strip for labels
+    RECT_H = 28    # height of the colored strip itself
     TOTAL_H = LABEL_H + RECT_H
-    CHAR_W = 7     # approximate px per character at 13pt bold
+    CHAR_W = 9     # approximate px per character at 16pt bold
     PAD = 4        # horizontal padding on each side of a label
     x_scale = alt.Scale(domain=[1, prot_length + 1])
 
@@ -247,7 +247,7 @@ def _make_domain_cartoon(segments_df: pd.DataFrame, prot_length: int, width: int
 
     labels = (
         alt.Chart(label_df)
-        .mark_text(fontSize=13, fontWeight="bold", baseline="middle", align="center")
+        .mark_text(fontSize=16, fontWeight="bold", baseline="middle", align="center")
         .encode(
             x=alt.X("center:Q", axis=None, scale=x_scale),
             y=alt.Y("y_mid:Q", scale=alt.Scale(domain=[0, 1]), axis=None),
