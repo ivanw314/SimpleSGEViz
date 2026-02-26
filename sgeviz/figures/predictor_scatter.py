@@ -110,7 +110,7 @@ def make_plot(df: pd.DataFrame, thresholds: list, gene: str = "") -> alt.Chart |
                 text=f"{gene + ' — ' if gene else ''}{display} vs. Fitness Score",
                 fontSize=15,
             ),
-        ).interactive()
+        ).interactive(name=f"pan_{col}")
 
         # SGE threshold lines (vertical)
         nf_line = alt.Chart(panel_df).mark_rule(
