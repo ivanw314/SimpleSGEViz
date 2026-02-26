@@ -137,10 +137,11 @@ Multiple genes can be processed in a single run by placing all their files in th
 | Column | Description |
 |---|---|
 | `amino_acid_change` | Amino acid substitution in `A123G` format (enables AA heatmap) |
-| `max_SpliceAI` | Maximum SpliceAI delta score (variants > 0.2 are excluded from AA heatmap) |
-| `am_score` | AlphaMissense pathogenicity score (shown as VEP sub-panel in AA heatmap). Can be supplied directly in this file or loaded automatically from a `*{gene}*vep*` file. |
-| `revel_score` | REVEL score (shown as VEP sub-panel in AA heatmap). Can be supplied directly in this file or loaded automatically from a `*{gene}*vep*` file. |
-| `MutPred2` | MutPred2 score (shown as VEP sub-panel in AA heatmap). Must be supplied directly in this file. |
+| `max_SpliceAI` | Maximum SpliceAI delta score (variants > 0.2 are excluded from missense-specific predictor panels and the AA heatmap) |
+| `am_score` | AlphaMissense pathogenicity score (shown in predictor scatter and AA heatmap VEP sub-panel). Can be supplied directly in this file or loaded automatically from a `*{gene}*vep*` file. |
+| `revel_score` | REVEL score (shown in predictor scatter and AA heatmap VEP sub-panel). Can be supplied directly in this file or loaded automatically from a `*{gene}*vep*` file. |
+| `cadd_score` | CADD phred score (shown in predictor scatter). Can be supplied directly in this file or loaded automatically from a `*{gene}*vep*` file. |
+| `MutPred2` | MutPred2 score (shown in predictor scatter and AA heatmap VEP sub-panel). Must be supplied directly in this file. |
 
 ---
 
@@ -335,7 +336,7 @@ Download the results as Excel (`.xlsx`) or plain text (`.txt`) — both formats 
 
 **Step 3 — Add to input directory:**
 
-Rename the downloaded file to `{gene}.vep.xlsx` (e.g. `BRCA1.vep.xlsx`) and place it in your pipeline input directory. The pipeline will detect and load it automatically.
+Rename the downloaded file to `{gene}.vep.xlsx` or `{gene}.vep.txt` (e.g. `BRCA1.vep.xlsx`) and place it in your pipeline input directory. The pipeline will detect and load it automatically — both Excel and plain text formats are supported.
 
 ---
 
@@ -356,4 +357,4 @@ The `Location` column (`chr:pos-pos` format, e.g. `2:214728633-214728633`) and `
 
 When multiple transcript rows exist for the same variant, the first row is kept (Ensembl VEP typically outputs the MANE_SELECT transcript first).
 
-If a `*{gene}*vep*` file is not present but `am_score` or `revel_score` columns already exist in `*allscores.tsv`, those columns are used directly. If neither source is available, the VEP sub-panels are omitted from the AA heatmap.
+If a `*{gene}*vep*` file is not present but predictor score columns (`am_score`, `revel_score`, `cadd_score`, `MutPred2`) already exist in `*allscores.tsv`, those columns are used directly. If no predictor scores are available from either source, the predictor scatter figure and AA heatmap VEP sub-panels are omitted.

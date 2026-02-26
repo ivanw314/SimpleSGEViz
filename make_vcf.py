@@ -96,8 +96,9 @@ def make_vcf(allscores_path: Path, output_path: Path):
     print("Next steps:")
     print("  1. Upload the VCF to https://www.ensembl.org/Tools/VEP (ensure genome build is GRCh38)")
     print("  2. Enable pathogenicity predictions: AlphaMissense, CADD, REVEL, SpliceAI")
-    print("  3. Download results as Excel (.xlsx)")
-    print(f"  4. Rename to {allscores_path.stem.split('allscores')[0].rstrip('.')}.vep.xlsx")
+    print("  3. Download results as Excel (.xlsx) or plain text (.txt) — both are supported")
+    stem = allscores_path.stem.split('allscores')[0].rstrip('.')
+    print(f"  4. Rename to {stem}.vep.xlsx  (or {stem}.vep.txt)")
     print("  5. Place in your pipeline input directory")
 
 
