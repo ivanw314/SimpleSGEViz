@@ -1,7 +1,36 @@
+import math
+
 import pandas as pd
 import altair as alt
 
 from .base import PALETTE, VARIANT_TYPES
+
+
+def _score_tick_values(scores: pd.Series) -> list:
+    """X-axis tick positions spanning the actual score range.
+
+    Tries steps [0.5, 0.2, 0.1, 0.05, 0.02] from coarsest to finest and
+    picks the coarsest one that still produces at least 6 ticks, so narrow
+    datasets get sensible density rather than 2-3 widely-spaced marks.
+    """
+    data_min, data_max = scores.min(), scores.max()
+    for step in [0.5, 0.2, 0.1, 0.05, 0.02]:
+        lo = math.floor(round(data_min / step, 6)) * step
+        hi = math.ceil(round(data_max / step, 6)) * step
+        n = round((hi - lo) / step) + 1
+        if n >= 6:
+            break
+    return [round(lo + i * step, 10) for i in range(n)]
+
+
+def _count_tick_values(scores: pd.Series, nbins: int = 50) -> list:
+    """Y-axis tick positions for the histogram based on approximate peak bin count."""
+    max_count = int(pd.cut(scores, bins=nbins).value_counts().max())
+    for step in [50, 100, 200, 500, 1000, 2000, 5000]:
+        if math.ceil(max_count / step) <= 8:
+            break
+    hi = math.ceil(max_count / step) * step
+    return list(range(0, hi + step, step))
 
 
 def _threshold_rules(thresholds: list):
@@ -31,6 +60,8 @@ def make_figures(df: pd.DataFrame, thresholds: list, gene: str = ""):
     alt.data_transformers.disable_max_rows()
 
     n = len(df)
+    x_ticks = _score_tick_values(df["score"])
+    y_ticks = _count_tick_values(df["score"])
     nf_line, func_line = _threshold_rules(thresholds)
     selection = alt.selection_point(fields=["Consequence"], bind="legend")
     zoom_hist = alt.selection_interval(bind="scales", name="zoom_hist")
@@ -44,7 +75,7 @@ def make_figures(df: pd.DataFrame, thresholds: list, gene: str = ""):
                 title="",
                 labelFontSize=16,
                 titleFontSize=20,
-                values=[-0.8, -0.6, -0.4, -0.2, 0, 0.2],
+                values=x_ticks,
             ),
         ),
         alt.Y(
@@ -53,14 +84,16 @@ def make_figures(df: pd.DataFrame, thresholds: list, gene: str = ""):
                 title="Number of Variants",
                 labelFontSize=16,
                 titleFontSize=20,
-                values=[0, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500],
+                values=y_ticks,
             ),
         ),
         color=alt.Color(
             "Consequence:N",
             scale=alt.Scale(range=PALETTE, domain=VARIANT_TYPES),
             legend=alt.Legend(
-                titleFontSize=16, labelFontSize=14, orient="right", offset=-80
+                titleFontSize=16, labelFontSize=14,
+                orient="none", legendX=10, legendY=5,
+                columns=2,
             ),
         ),
         opacity=alt.condition(selection, alt.value(1), alt.value(0.2)),
@@ -85,7 +118,7 @@ def make_figures(df: pd.DataFrame, thresholds: list, gene: str = ""):
             "score:Q",
             axis=alt.Axis(
                 title="Fitness Score",
-                values=[-0.8, -0.6, -0.4, -0.2, 0, 0.2],
+                values=x_ticks,
                 titleFontSize=20,
                 labelFontSize=16,
             ),
