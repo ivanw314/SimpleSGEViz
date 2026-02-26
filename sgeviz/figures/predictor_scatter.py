@@ -112,19 +112,34 @@ def make_plot(df: pd.DataFrame, thresholds: list, gene: str = "") -> alt.Chart |
             ),
         ).interactive()
 
+        # Compute data extents for background rectangles.
+        # Using actual data range + 5% padding (matching Vega-Lite's default) avoids
+        # including extreme datum values in the shared scale domain, which would
+        # compress the visible data into a tiny region of the chart.
+        _x_lo = float(panel_df["score"].min())
+        _x_hi = float(panel_df["score"].max())
+        _y_lo = float(panel_df[display].min())
+        _y_hi = float(panel_df[display].max())
+        _dx = (_x_hi - _x_lo) * 0.05 or 0.05
+        _dy = (_y_hi - _y_lo) * 0.05 or 0.05
+
         # SGE threshold rectangles (vertical bands, behind scatter)
-        nf_rect = alt.Chart(panel_df).mark_rect(
-            color="#d62728", opacity=0.08, clip=True
-        ).encode(
-            x=alt.datum(-9999),
-            x2=alt.datum(thresholds[0]),
+        nf_rect = alt.Chart(
+            pd.DataFrame({
+                "x": [_x_lo - _dx], "x2": [thresholds[0]],
+                "y": [_y_lo - _dy], "y2": [_y_hi + _dy],
+            })
+        ).mark_rect(color="#d62728", opacity=0.08, clip=True).encode(
+            x="x:Q", x2="x2:Q", y="y:Q", y2="y2:Q"
         )
 
-        func_rect = alt.Chart(panel_df).mark_rect(
-            color="#006616", opacity=0.08, clip=True
-        ).encode(
-            x=alt.datum(thresholds[1]),
-            x2=alt.datum(9999),
+        func_rect = alt.Chart(
+            pd.DataFrame({
+                "x": [thresholds[1]], "x2": [_x_hi + _dx],
+                "y": [_y_lo - _dy], "y2": [_y_hi + _dy],
+            })
+        ).mark_rect(color="#006616", opacity=0.08, clip=True).encode(
+            x="x:Q", x2="x2:Q", y="y:Q", y2="y2:Q"
         )
 
         layers = [nf_rect, func_rect]
@@ -133,19 +148,23 @@ def make_plot(df: pd.DataFrame, thresholds: list, gene: str = "") -> alt.Chart |
         if col in _PRED_THRESHOLDS:
             benign_thresh, path_thresh = _PRED_THRESHOLDS[col]
             layers.append(
-                alt.Chart(panel_df).mark_rect(
-                    color="#1a7abf", opacity=0.1, clip=True
-                ).encode(
-                    y=alt.datum(-9999),
-                    y2=alt.datum(benign_thresh),
+                alt.Chart(
+                    pd.DataFrame({
+                        "x": [_x_lo - _dx], "x2": [_x_hi + _dx],
+                        "y": [_y_lo - _dy], "y2": [benign_thresh],
+                    })
+                ).mark_rect(color="#1a7abf", opacity=0.10, clip=True).encode(
+                    x="x:Q", x2="x2:Q", y="y:Q", y2="y2:Q"
                 )
             )
             layers.append(
-                alt.Chart(panel_df).mark_rect(
-                    color="#d62728", opacity=0.1, clip=True
-                ).encode(
-                    y=alt.datum(path_thresh),
-                    y2=alt.datum(9999),
+                alt.Chart(
+                    pd.DataFrame({
+                        "x": [_x_lo - _dx], "x2": [_x_hi + _dx],
+                        "y": [path_thresh], "y2": [_y_hi + _dy],
+                    })
+                ).mark_rect(color="#d62728", opacity=0.10, clip=True).encode(
+                    x="x:Q", x2="x2:Q", y="y:Q", y2="y2:Q"
                 )
             )
 
