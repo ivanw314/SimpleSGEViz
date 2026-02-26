@@ -60,8 +60,9 @@ def make_figures(df: pd.DataFrame, thresholds: list, gene: str = ""):
             "Consequence:N",
             scale=alt.Scale(range=PALETTE, domain=VARIANT_TYPES),
             legend=alt.Legend(
-                titleFontSize=16, labelFontSize=14, orient="left", offset=0,
-                columns = 2
+                titleFontSize=16, labelFontSize=14,
+                orient="none", legendX=10, legendY=5,
+                columns=2,
             ),
         ),
         opacity=alt.condition(selection, alt.value(1), alt.value(0.2)),
