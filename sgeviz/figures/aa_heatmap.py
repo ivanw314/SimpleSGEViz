@@ -110,6 +110,58 @@ def _load_domains(path, prot_length: int) -> pd.DataFrame:
     return pd.DataFrame(segments)
 
 
+def _load_exons(path) -> pd.DataFrame | None:
+    """Load exon boundaries from the 'exons' sheet of a domains Excel file.
+
+    Expected columns: aa_start, aa_end (fractional amino acid positions).
+    Labels are assigned sequentially (1, 2, 3, …).
+    Returns None if the file is not Excel or has no 'exons' sheet.
+    """
+    suffix = Path(path).suffix.lower()
+    if suffix not in (".xlsx", ".xls"):
+        return None
+    xl = pd.ExcelFile(path)
+    if "exons" not in xl.sheet_names:
+        return None
+    df = xl.parse("exons").rename(columns={"aa_start": "start", "aa_end": "end"})
+    df["label"] = [str(i + 1) for i in range(len(df))]
+    df["center"] = (df["start"] + df["end"]) / 2
+    return df[["start", "end", "label", "center"]]
+
+
+def _make_exon_cartoon(exon_df: pd.DataFrame, prot_length: int, width: int) -> alt.Chart:
+    """White rect strip showing exon boundaries with sequential exon numbers."""
+    RECT_H = 20
+    x_scale = alt.Scale(domain=[1, prot_length + 1])
+
+    rects = (
+        alt.Chart(exon_df)
+        .mark_rect(stroke="black", strokeWidth=1.5, color="white")
+        .encode(
+            x=alt.X("start:Q", axis=None, scale=x_scale),
+            x2="end:Q",
+            tooltip=[
+                alt.Tooltip("label:N", title="Exon"),
+                alt.Tooltip("start:Q", title="AA Start"),
+                alt.Tooltip("end:Q", title="AA End"),
+            ],
+        )
+        .properties(width=width, height=RECT_H)
+    )
+
+    labels = (
+        alt.Chart(exon_df)
+        .mark_text(fontSize=11, fontWeight="bold", baseline="middle", align="center")
+        .encode(
+            x=alt.X("center:Q", axis=None, scale=x_scale),
+            text="label:N",
+        )
+        .properties(width=width, height=RECT_H)
+    )
+
+    return alt.layer(rects, labels)
+
+
 def _make_domain_cartoon(segments_df: pd.DataFrame, prot_length: int, width: int) -> alt.Chart:
     """Colored rect strip with labels in a zone above the strip.
 
@@ -424,7 +476,13 @@ def make_plot(
 
     if domains_path is not None:
         segments_df = _load_domains(domains_path, prot_length)
-        panels.append(_make_domain_cartoon(segments_df, prot_length, width))
+        domain_chart = _make_domain_cartoon(segments_df, prot_length, width)
+        exon_df = _load_exons(domains_path)
+        if exon_df is not None:
+            exon_chart = _make_exon_cartoon(exon_df, prot_length, width)
+            panels.append(alt.vconcat(domain_chart, exon_chart, spacing=0))
+        else:
+            panels.append(domain_chart)
 
     has_del = (
         "var_type" in df.columns
