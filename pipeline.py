@@ -14,12 +14,14 @@ Optional (figures generated only if detected):
     *{gene}*Regeneron*  Regeneron allele frequencies (CSV or Excel)
     *{gene}*editrates*  Library edit rates (TSV with target_rep + edit_rate columns)
     *{gene}*cartoon*    Gene cartoon Excel file (sheets: exon_coords, metadata, optionally lib_coords)
+    *{gene}*vep*        VEP Excel output (.xlsx) with AlphaMissense, REVEL, CADD, SpliceAI scores
 
 Outputs (saved to output_dir):
     {gene}_histogram_stripplot    Score distribution histogram + strip plot
     {gene}_correlation_heatmap    Replicate Pearson r heatmap
     {gene}_scores_across_gene     Per-exon scatter plot of scores vs. genomic position
     {gene}_aa_heatmap             Amino acid substitution heatmap (if amino_acid_change column present)
+    {gene}_predictor_scatter      Predictor vs. fitness score scatter panels (if predictor columns present)
     {gene}_clinvar_strip          ClinVar classification strip plot (if *{gene}*ClinVar*SNV* file present)
     {gene}_clinvar_roc            ROC curve for SGE score B/LB vs P/LP classification (if ClinVar file present)
     {gene}_maf_vs_score           Allele frequency vs. score heatmap (if AF files present)
@@ -39,7 +41,7 @@ from pathlib import Path
 import pandas as pd
 
 from sgeviz import io, process
-from sgeviz.figures import aa_heatmap, clinvar_strip, correlation, edit_rate_barplot, gene_cartoon, histogram_strip, maf_score, scores_gene
+from sgeviz.figures import aa_heatmap, clinvar_strip, correlation, edit_rate_barplot, gene_cartoon, histogram_strip, maf_score, predictor_scatter, scores_gene
 
 
 def parse_args():
@@ -137,6 +139,7 @@ def main():
     for gene, files in genes.items():
         print(f"\n[{gene}] Loading data...")
         scores_df, thresholds = process.load_scores(files)
+        scores_df = process.load_vep(files, scores_df)
         counts_df = io.load_counts(files)
         print(f"  {len(scores_df)} variants loaded")
 
@@ -176,6 +179,15 @@ def main():
             )
         else:
             print(f"[{gene}] No amino_acid_change column, skipping AA heatmap.")
+
+        pred_plot = predictor_scatter.make_plot(scores_df, thresholds, gene=gene)
+        if pred_plot is not None:
+            io.save_figure(
+                pred_plot,
+                args.output_dir / f"{gene}_predictor_scatter.{fmt}",
+            )
+        else:
+            print(f"[{gene}] No predictor score columns found, skipping predictor scatter.")
 
         clinvar_df = process.load_clinvar(files, scores_df)
         if clinvar_df is not None:

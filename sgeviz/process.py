@@ -208,6 +208,85 @@ def _read_regeneron(path: Path) -> pd.DataFrame:
     return df[["pos_id", "regeneron_maf"]]
 
 
+def load_vep(files: dict, scores_df: pd.DataFrame) -> pd.DataFrame:
+    """Load a VEP Excel output file and merge predictor scores into scores_df.
+
+    Reads a VEP Excel file (*{gene}*vep*) exported from Ensembl VEP and
+    extracts AlphaMissense, REVEL, CADD, SpliceAI, and other scores. Scores
+    are merged into the scores dataframe by pos_id (left join, so variants
+    without VEP scores receive NaN).
+
+    Returns the original scores_df unchanged if no VEP file is detected.
+    """
+    vep_path = files.get("vep")
+    if vep_path is None:
+        return scores_df
+
+    vep_df = _read_vep(vep_path)
+    merged = pd.merge(scores_df, vep_df, on="pos_id", how="left")
+    score_cols = ["am_score", "revel_score", "max_SpliceAI", "cadd_score"]
+    found = [c for c in score_cols if c in vep_df.columns]
+    print(f"  VEP: {len(vep_df)} variants loaded ({', '.join(found)})")
+    return merged
+
+
+def _read_vep(path: Path) -> pd.DataFrame:
+    """Parse a VEP output file (Excel or tab-delimited text) and return per-variant
+    predictor scores.
+
+    Expected columns (all optional except Location and Allele):
+      Location         — chr:pos-pos (e.g. 2:214728633-214728633)
+      Allele           — alt allele (+ strand)
+      am_pathogenicity — AlphaMissense score  → am_score
+      REVEL            — REVEL score          → revel_score
+      CADD_PHRED       — CADD phred score     → cadd_score
+      SpliceAI_pred_DS_AG/AL/DG/DL — max → max_SpliceAI
+
+    Supports both Excel (.xlsx) and tab-delimited text (.txt, .tsv, .csv)
+    output formats from the Ensembl VEP web tool. In the text format, missing
+    values are represented as '-' and are converted to NaN.
+
+    When multiple transcript rows share the same pos_id, the first row is
+    kept (VEP typically outputs MANE_SELECT transcripts first).
+    """
+    if path.suffix.lower() == ".xlsx":
+        df = pd.read_excel(path)
+    else:
+        df = pd.read_csv(path, sep="\t", na_values="-", keep_default_na=True)
+    # Strip leading # from first column name if present
+    df.columns = [df.columns[0].lstrip("#")] + list(df.columns[1:])
+
+    # Parse Location (chr:pos-pos) -> genomic pos
+    df["pos"] = df["Location"].str.split(":").str[1].str.split("-").str[0].astype(int)
+    df["pos_id"] = df["pos"].astype(str) + ":" + df["Allele"]
+
+    # Rename predictor columns to internal names
+    rename_map = {
+        "am_pathogenicity": "am_score",
+        "REVEL": "revel_score",
+        "CADD_PHRED": "cadd_score",
+    }
+    df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
+
+    # Compute max SpliceAI delta score across the four directions
+    splice_ds_cols = [
+        "SpliceAI_pred_DS_AG", "SpliceAI_pred_DS_AL",
+        "SpliceAI_pred_DS_DG", "SpliceAI_pred_DS_DL",
+    ]
+    present = [c for c in splice_ds_cols if c in df.columns]
+    if present:
+        df["max_SpliceAI"] = df[present].apply(pd.to_numeric, errors="coerce").max(axis=1)
+
+    # One row per pos_id: keep first occurrence (MANE_SELECT typically comes first)
+    df = df.drop_duplicates(subset="pos_id", keep="first")
+
+    out_cols = ["pos_id"]
+    for col in ["am_score", "revel_score", "max_SpliceAI", "cadd_score"]:
+        if col in df.columns:
+            out_cols.append(col)
+    return df[out_cols]
+
+
 def _rename_consequences(df: pd.DataFrame) -> pd.DataFrame:
     """Rename raw VEP consequence terms to display labels."""
     df = df.rename(columns={"consequence": "Consequence"})

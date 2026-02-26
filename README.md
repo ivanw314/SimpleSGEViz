@@ -116,6 +116,7 @@ Multiple genes can be processed in a single run by placing all their files in th
 | `*{gene}*domain*` | Protein domain annotations (CSV or Excel). Adds a domain cartoon strip above the AA heatmap. File name matching is case-insensitive. See [Domain annotation file format](#domain-annotation-file-format) below. |
 | `*{gene}*editrates*` | Library edit rates (tab-delimited `.tsv`). File name matching is case-insensitive. See [Edit rates file format](#edit-rates-file-format) below. |
 | `*{gene}*cartoon*` | Gene structure cartoon (Excel `.xlsx`). Generates a scalable exon cartoon with UTR/CDS distinction, ATG/stop markers, and compressed introns. If a `lib_coords` sheet is present a library amplicon track is added below. File name matching is case-insensitive. See [Gene cartoon file format](#gene-cartoon-file-format) below. |
+| `*{gene}*vep*` | VEP output — Excel (`.xlsx`) or tab-delimited text (`.txt`). AlphaMissense, REVEL, CADD, and SpliceAI scores are extracted and merged into the variant data, enabling the VEP predictor sub-panels in the AA heatmap. File name matching is case-insensitive. See [VEP file format](#vep-file-format) below. |
 
 ### Required columns in `*allscores.tsv`
 
@@ -136,10 +137,11 @@ Multiple genes can be processed in a single run by placing all their files in th
 | Column | Description |
 |---|---|
 | `amino_acid_change` | Amino acid substitution in `A123G` format (enables AA heatmap) |
-| `max_SpliceAI` | Maximum SpliceAI delta score (variants > 0.2 are excluded from AA heatmap) |
-| `am_score` | AlphaMissense pathogenicity score (shown as VEP sub-panel in AA heatmap) |
-| `revel_score` | REVEL score (shown as VEP sub-panel in AA heatmap) |
-| `MutPred2` | MutPred2 score (shown as VEP sub-panel in AA heatmap) |
+| `max_SpliceAI` | Maximum SpliceAI delta score (variants > 0.2 are excluded from missense-specific predictor panels and the AA heatmap) |
+| `am_score` | AlphaMissense pathogenicity score (shown in predictor scatter and AA heatmap VEP sub-panel). Can be supplied directly in this file or loaded automatically from a `*{gene}*vep*` file. |
+| `revel_score` | REVEL score (shown in predictor scatter and AA heatmap VEP sub-panel). Can be supplied directly in this file or loaded automatically from a `*{gene}*vep*` file. |
+| `cadd_score` | CADD phred score (shown in predictor scatter). Can be supplied directly in this file or loaded automatically from a `*{gene}*vep*` file. |
+| `MutPred2` | MutPred2 score (shown in predictor scatter and AA heatmap VEP sub-panel). Must be supplied directly in this file. |
 
 ---
 
@@ -155,6 +157,7 @@ All files are written to `output_dir` with the gene name as a prefix.
 | `{gene}_correlation_heatmap` | Pairwise Pearson r heatmap across replicates | Always |
 | `{gene}_scores_across_gene` | Per-exon scatter plot of fitness scores vs genomic position | Always |
 | `{gene}_aa_heatmap` | Amino acid substitution heatmap (AA position × substitution), optionally with a domain cartoon strip and 3bp deletion scatter panel | If `amino_acid_change` column present |
+| `{gene}_predictor_scatter` | Grid of scatter plots: each predictor score (AlphaMissense, REVEL, CADD, MutPred2) vs. fitness score, colored by consequence, with SGE and published predictor threshold lines | If any predictor column present (from VEP file or `*allscores.tsv`) |
 | `{gene}_clinvar_strip` | Strip plot of SGE scores by ClinVar germline classification | If ClinVar file detected |
 | `{gene}_clinvar_roc` | ROC curve for B/LB vs P/LP classification using SGE score | If ClinVar file detected and both classes present |
 | `{gene}_maf_vs_score` | Binned heatmap of log10(allele frequency) vs fitness score | If gnomAD or Regeneron file detected |
@@ -305,3 +308,54 @@ A two-column table with `type` and `info` rows:
 | `end` | Genomic end of the library amplicon |
 
 When present, a library amplicon track is drawn below the exon cartoon. Regions covered by multiple overlapping amplicons are progressively darkened. A bracket above the band labels the estimated number of variants covered (`covered_bases × 3` SNVs + `covered_bases ÷ 3` 3-bp deletions), and the left margin shows the total number of amplicons.
+
+---
+
+## VEP file format
+
+A VEP file provides pathogenicity predictor scores for the AA heatmap sub-panels. Place a VEP output file matching `*{gene}*vep*` (e.g. `BRCA1.vep.xlsx` or `BRCA1.VEP.txt`) in the input directory. Both Excel (`.xlsx`) and tab-delimited text (`.txt`) output formats from the Ensembl VEP web tool are supported.
+
+### Generating the VEP file
+
+**Step 1 — Create a VCF from your allscores file:**
+
+```bash
+python make_vcf.py path/to/GENE.allscores.tsv
+```
+
+This writes a `GENE.allscores.vcf` in the same directory and prints the suggested output filename and next steps.
+
+**Step 2 — Run Ensembl VEP:**
+
+Upload the VCF to [https://www.ensembl.org/Tools/VEP](https://www.ensembl.org/Tools/VEP) with the following options enabled:
+
+- *Identifiers and frequency data*: Gene symbol, MANE
+- *Pathogenicity predictions*: AlphaMissense, CADD
+- *Plugins*: REVEL, SpliceAI
+
+Download the results as Excel (`.xlsx`) or plain text (`.txt`) — both formats are supported.
+
+**Step 3 — Add to input directory:**
+
+Rename the downloaded file to `{gene}.vep.xlsx` or `{gene}.vep.txt` (e.g. `BRCA1.vep.xlsx`) and place it in your pipeline input directory. The pipeline will detect and load it automatically — both Excel and plain text formats are supported.
+
+---
+
+The pipeline expects columns produced by a standard VEP run with the following plugins:
+
+| Plugin | Column(s) extracted | Renamed to |
+|---|---|---|
+| AlphaMissense | `am_pathogenicity` | `am_score` |
+| REVEL | `REVEL` | `revel_score` |
+| CADD | `CADD_PHRED` | `cadd_score` |
+| SpliceAI | `SpliceAI_pred_DS_AG/AL/DG/DL` | `max_SpliceAI` (row-wise max) |
+
+All score columns are optional — the pipeline uses whichever are present.
+
+### How it works
+
+The `Location` column (`chr:pos-pos` format, e.g. `2:214728633-214728633`) and `Allele` column are used to construct a `pos_id` matching the `pos:alt` format in `*allscores.tsv`. Scores are merged by left join, so variants without VEP scores receive NaN.
+
+When multiple transcript rows exist for the same variant, the first row is kept (Ensembl VEP typically outputs the MANE_SELECT transcript first).
+
+If a `*{gene}*vep*` file is not present but predictor score columns (`am_score`, `revel_score`, `cadd_score`, `MutPred2`) already exist in `*allscores.tsv`, those columns are used directly. If no predictor scores are available from either source, the predictor scatter figure and AA heatmap VEP sub-panels are omitted.
