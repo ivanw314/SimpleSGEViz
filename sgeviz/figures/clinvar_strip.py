@@ -73,6 +73,11 @@ def make_strip(df: pd.DataFrame, thresholds: list, gene: str = "") -> alt.Chart:
         pd.DataFrame({"x": [thresholds[1]]})
     ).mark_rule(color="#888888", strokeDash=[8, 8], strokeWidth=2).encode(x="x:Q")
 
+    # ClinVar is SNV-only — exclude Inframe Indel from the legend
+    _snv_types, _snv_palette = zip(
+        *[(t, c) for t, c in zip(VARIANT_TYPES, PALETTE) if t != "Inframe Indel"]
+    )
+
     strip = alt.Chart(df).mark_tick(opacity=1, thickness=2).encode(
         x=alt.X(
             "score:Q",
@@ -87,7 +92,7 @@ def make_strip(df: pd.DataFrame, thresholds: list, gene: str = "") -> alt.Chart:
         ),
         color=alt.Color(
             "Consequence:N",
-            scale=alt.Scale(domain=VARIANT_TYPES, range=PALETTE),
+            scale=alt.Scale(domain=list(_snv_types), range=list(_snv_palette)),
             legend=alt.Legend(titleFontSize=16, labelFontSize=14),
         ),
         tooltip=["pos_id:N", "score:Q", "Consequence:N", "Germline classification:N"],
