@@ -1,4 +1,7 @@
 import fnmatch
+import json
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import altair as alt
@@ -127,6 +130,110 @@ def load_cartoon(files: dict):
     lib_df = xl.parse("lib_coords") if "lib_coords" in xl.sheet_names else None
     meta_df = xl.parse("metadata")
     return exon_df, lib_df, meta_df
+
+
+_SPECIES_MAP = {
+    "human": "homo_sapiens",
+    "mouse": "mus_musculus",
+    "rat": "rattus_norvegicus",
+    "zebrafish": "danio_rerio",
+    "fly": "drosophila_melanogaster",
+    "worm": "caenorhabditis_elegans",
+    "yeast": "saccharomyces_cerevisiae",
+}
+
+
+def fetch_exon_coords(
+    gene_symbol: str,
+    transcript_id: str | None = None,
+    species: str = "human",
+    assembly: str = "GRCh38",
+) -> tuple[pd.DataFrame, None, pd.DataFrame]:
+    """Fetch exon coordinates for a gene from the Ensembl REST API.
+
+    Returns ``(exon_df, None, meta_df)`` matching the ``load_cartoon()`` output
+    format, so the result can be passed directly to
+    ``gene_cartoon.make_exon_cartoon()``.
+
+    Args:
+        gene_symbol: HGNC gene symbol (e.g. ``"BRCA1"``).
+        transcript_id: Ensembl transcript ID to use. If ``None``, the canonical
+            transcript is selected automatically.
+        species: Common name (e.g. ``"human"``) or Ensembl species name (e.g.
+            ``"homo_sapiens"``). Defaults to ``"human"``.
+        assembly: Genome assembly — ``"GRCh38"`` (default) or ``"GRCh37"``.
+    """
+    ens_species = _SPECIES_MAP.get(species.lower(), species.lower())
+    base_url = (
+        "https://grch37.rest.ensembl.org"
+        if assembly.upper() == "GRCH37"
+        else "https://rest.ensembl.org"
+    )
+    url = (
+        f"{base_url}/lookup/symbol/{ens_species}/{gene_symbol}"
+        "?expand=1&content-type=application/json"
+    )
+
+    try:
+        with urllib.request.urlopen(url, timeout=30) as resp:
+            data = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        raise ValueError(
+            f"Ensembl REST API returned HTTP {e.code} for gene '{gene_symbol}'. "
+            "Check that the gene symbol and species are correct."
+        ) from e
+    except urllib.error.URLError as e:
+        raise ConnectionError(
+            f"Could not reach Ensembl REST API: {e.reason}. "
+            "Check your internet connection."
+        ) from e
+
+    transcripts = data.get("Transcript", [])
+    if not transcripts:
+        raise ValueError(f"No transcripts found for gene '{gene_symbol}'.")
+
+    if transcript_id is not None:
+        tx = next((t for t in transcripts if t["id"] == transcript_id), None)
+        if tx is None:
+            available = [t["id"] for t in transcripts]
+            raise ValueError(
+                f"Transcript '{transcript_id}' not found for '{gene_symbol}'. "
+                f"Available: {available}"
+            )
+    else:
+        canonical = [t for t in transcripts if t.get("is_canonical") == 1]
+        tx = canonical[0] if canonical else max(
+            transcripts,
+            key=lambda t: (t.get("Translation") is not None, t.get("length", 0)),
+        )
+
+    strand = "minus" if data["strand"] == -1 else "plus"
+
+    exons = sorted(tx.get("Exon", []), key=lambda e: e["start"])
+    exon_df = pd.DataFrame([
+        {"exon": f"X{i + 1}", "start": e["start"], "end": e["end"]}
+        for i, e in enumerate(exons)
+    ])
+
+    translation = tx.get("Translation")
+    if translation is not None:
+        atg_pos = translation["end"] if strand == "minus" else translation["start"]
+        stop_pos = translation["start"] if strand == "minus" else translation["end"]
+    else:
+        atg_pos = int(exon_df["start"].min())
+        stop_pos = int(exon_df["end"].max())
+
+    meta_df = pd.DataFrame([
+        {"type": "strand", "info": strand},
+        {"type": "atg",    "info": atg_pos},
+        {"type": "stop",   "info": stop_pos},
+    ])
+
+    print(
+        f"  Fetched {len(exon_df)} exons for {gene_symbol} "
+        f"({tx['id']}, {strand}-strand, {assembly})"
+    )
+    return exon_df, None, meta_df
 
 
 def load_edit_rates(files: dict):

@@ -1,7 +1,7 @@
 """SGE Visualization Pipeline
 
 Usage:
-    python pipeline.py <input_dir> <output_dir> [--format html|png|svg] [--excel]
+    python pipeline.py <input_dir> <output_dir> [--format html|png|svg] [--excel] [--fetch-coords]
 
 The input directory must contain:
     *allscores.tsv      SNV + deletion fitness scores (combined file)
@@ -26,7 +26,7 @@ Outputs (saved to output_dir):
     {gene}_clinvar_roc            ROC curve for SGE score B/LB vs P/LP classification (if ClinVar file present)
     {gene}_maf_vs_score           Allele frequency vs. score heatmap (if AF files present)
     {gene}_edit_rate_barplot      Library edit rate bar plot by target (if *{gene}*editrates* file present)
-    {gene}_exon_cartoon           Exon structure cartoon (if *{gene}*cartoon* file present, no lib_coords sheet)
+    {gene}_exon_cartoon           Exon structure cartoon (if *{gene}*cartoon* file present, or --fetch-coords)
     {gene}_library_cartoon        Exon + library design cartoon (if *{gene}*cartoon* file with lib_coords sheet)
     {gene}_data.xlsx              Multi-sheet Excel workbook (if --excel flag is set)
 
@@ -97,6 +97,21 @@ def parse_args():
         metavar="NAME",
         help="Override the gene name used in figure titles and output filenames. "
              "Cannot be used when multiple gene datasets are detected.",
+    )
+    parser.add_argument(
+        "--fetch-coords",
+        action="store_true",
+        default=False,
+        help="If no cartoon file is found, automatically fetch exon coordinates "
+             "from the Ensembl REST API using the gene symbol. Requires internet access. "
+             "Use --assembly to select the genome assembly (default: GRCh38).",
+    )
+    parser.add_argument(
+        "--assembly",
+        choices=["GRCh38", "GRCh37"],
+        default="GRCh38",
+        help="Genome assembly for Ensembl coordinate fetching (default: GRCh38). "
+             "Only used with --fetch-coords.",
     )
     return parser.parse_args()
 
@@ -216,6 +231,12 @@ def main():
             print(f"[{gene}] No allele frequency files found, skipping MAF figure.")
 
         cartoon_data = io.load_cartoon(files)
+        if cartoon_data is None and args.fetch_coords:
+            print(f"[{gene}] No cartoon file found — fetching exon coords from Ensembl...")
+            try:
+                cartoon_data = io.fetch_exon_coords(gene, assembly=args.assembly)
+            except (ValueError, ConnectionError) as exc:
+                print(f"[{gene}] Could not fetch exon coords: {exc}")
         if cartoon_data is not None:
             exon_df, lib_df, meta_df = cartoon_data
             if lib_df is not None and not lib_df.empty:
