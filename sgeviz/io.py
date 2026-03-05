@@ -314,7 +314,10 @@ def exon_genomic_to_aa(
             })
             cds_bases_so_far += cds_bases
 
-    return pd.DataFrame(aa_exons, columns=["aa_start", "aa_end"])
+    # Subtract 3 bases for the stop codon (included in Ensembl Translation coordinates)
+    # before converting to amino acid count.
+    protein_length = max(0, cds_bases_so_far - 3) // 3
+    return pd.DataFrame(aa_exons, columns=["aa_start", "aa_end"]), protein_length
 
 
 def load_targets(files: dict) -> "pd.DataFrame | None":

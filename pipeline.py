@@ -147,16 +147,6 @@ def main():
         genes = {args.gene_name: genes[original]}
         print(f"  Gene name overridden: '{original}' -> '{args.gene_name}'")
 
-    # --- Resolve protein lengths ---
-    # If --protein-length was not supplied, prompt interactively for each gene.
-    protein_lengths: dict[str, int | None] = {}
-    for gene in genes:
-        if args.protein_length is not None:
-            protein_lengths[gene] = args.protein_length
-        else:
-            raw = input(f"Protein length for {gene} (press Enter to estimate from data): ").strip()
-            protein_lengths[gene] = int(raw) if raw else None
-
     # --- Process each gene ---
     for gene, files in genes.items():
         print(f"\n[{gene}] Loading data...")
@@ -192,12 +182,24 @@ def main():
                 print(f"[{gene}] Could not fetch exon coords: {exc}")
 
         aa_exon_df = None
+        inferred_protein_length = None
         if cartoon_data is not None:
             _exon_df, _, _meta_df = cartoon_data
             try:
-                aa_exon_df = io.exon_genomic_to_aa(_exon_df, _meta_df)
+                aa_exon_df, inferred_protein_length = io.exon_genomic_to_aa(_exon_df, _meta_df)
             except Exception as exc:
                 print(f"[{gene}] Could not convert exon coords to AA positions: {exc}")
+
+        # --- Resolve protein length ---
+        # Priority: --protein-length flag > inferred from Ensembl CDS > interactive prompt
+        if args.protein_length is not None:
+            protein_length = args.protein_length
+        elif inferred_protein_length is not None:
+            protein_length = inferred_protein_length
+            print(f"  Protein length inferred from Ensembl CDS: {protein_length} aa")
+        else:
+            raw = input(f"  Protein length for {gene} (press Enter to estimate from data): ").strip()
+            protein_length = int(raw) if raw else None
 
         print(f"[{gene}] Generating figures (format: {fmt})")
 
@@ -228,7 +230,7 @@ def main():
                 aa_heatmap.make_plot(
                     scores_df, gene=gene, thresholds=thresholds,
                     domains_path=domains_path,
-                    protein_length=protein_lengths[gene],
+                    protein_length=protein_length,
                     px_per_aa=args.px_per_aa,
                     aa_exon_df=aa_exon_df,
                 ),

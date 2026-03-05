@@ -69,7 +69,7 @@ sgeviz <input_dir> <output_dir> [--format html|png|svg] [--excel] [--assembly GR
 | `--format` | Output format for figures: `html`, `png`, or `svg` (default: `png`) |
 | `--excel` | Also write a multi-sheet Excel workbook for each gene (requires `openpyxl`) |
 | `--assembly` | Genome assembly for Ensembl coordinate fetching: `GRCh38` (default) or `GRCh37`. |
-| `--protein-length N` | Known full protein length in amino acids. If the data covers fewer residues the x-axis is extended to this length. If omitted, you are prompted interactively for each gene. |
+| `--protein-length N` | Override the protein length in amino acids. If omitted, the length is derived automatically from the Ensembl CDS annotation. Use this to truncate the heatmap x-axis to a specific region. |
 | `--px-per-aa N` | Pixels allocated per amino acid column in the AA heatmap (default: `4`). Reduce to produce a narrower figure, e.g. `--px-per-aa 2`. |
 | `--gene-name NAME` | Override the gene name used in figure titles and output filenames. Useful when the name auto-detected from the filename differs from the preferred display name. Cannot be used when multiple gene datasets are detected in the same input directory. |
 | `--exon-color HEX` | Exon fill color in gene cartoons (e.g. `'#E74C3C'`). Default: `#2E86C1`. |
