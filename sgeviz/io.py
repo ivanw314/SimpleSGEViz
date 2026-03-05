@@ -306,7 +306,8 @@ def exon_genomic_to_aa(
     for _, exon in exons.iterrows():
         ov_start = max(int(exon["start"]), cds_lo)
         ov_end = min(int(exon["end"]), cds_hi)
-        cds_bases = max(0, ov_end - ov_start)
+        # Ensembl uses 1-based fully-closed intervals, so bases = end - start + 1
+        cds_bases = max(0, ov_end - ov_start + 1)
         if cds_bases > 0:
             aa_exons.append({
                 "aa_start": round(cds_bases_so_far / 3 + 1, 2),
