@@ -1,7 +1,7 @@
 """SGE Visualization Pipeline
 
 Usage:
-    python pipeline.py <input_dir> <output_dir> [--format html|png|svg] [--excel] [--fetch-coords]
+    python pipeline.py <input_dir> <output_dir> [--format html|png|svg] [--excel]
 
 The input directory must contain:
     *allscores.tsv      SNV + deletion fitness scores (combined file)
@@ -14,7 +14,6 @@ Optional (figures generated only if detected):
     *{gene}*Regeneron*  Regeneron allele frequencies (CSV or Excel)
     *{gene}*editrates*  Library edit rates (TSV with target_rep + edit_rate columns)
     *{gene}*targets*    Library targets TSV (columns: editstart, editstop; used as library amplicons)
-    *{gene}*cartoon*    Gene cartoon Excel file (sheets: exon_coords, metadata)
     *{gene}*vep*        VEP Excel output (.xlsx) with AlphaMissense, REVEL, CADD, SpliceAI scores
 
 Outputs (saved to output_dir):
@@ -27,8 +26,8 @@ Outputs (saved to output_dir):
     {gene}_clinvar_roc            ROC curve for SGE score B/LB vs P/LP classification (if ClinVar file present)
     {gene}_maf_vs_score           Allele frequency vs. score heatmap (if AF files present)
     {gene}_edit_rate_barplot      Library edit rate bar plot by target (if *{gene}*editrates* file present)
-    {gene}_exon_cartoon           Exon structure cartoon (if *{gene}*cartoon* file present, or --fetch-coords)
-    {gene}_library_cartoon        Exon + library design cartoon (if *{gene}*cartoon* file with lib_coords sheet)
+    {gene}_exon_cartoon           Exon structure cartoon (fetched from Ensembl; no *targets* file)
+    {gene}_library_cartoon        Exon + library design cartoon (fetched from Ensembl + *targets* file)
     {gene}_data.xlsx              Multi-sheet Excel workbook (if --excel flag is set)
 
 PNG and SVG output require vl-convert-python (pip install vl-convert-python).
@@ -100,19 +99,10 @@ def parse_args():
              "Cannot be used when multiple gene datasets are detected.",
     )
     parser.add_argument(
-        "--fetch-coords",
-        action="store_true",
-        default=False,
-        help="If no cartoon file is found, automatically fetch exon coordinates "
-             "from the Ensembl REST API using the gene symbol. Requires internet access. "
-             "Use --assembly to select the genome assembly (default: GRCh38).",
-    )
-    parser.add_argument(
         "--assembly",
         choices=["GRCh38", "GRCh37"],
         default="GRCh38",
-        help="Genome assembly for Ensembl coordinate fetching (default: GRCh38). "
-             "Only used with --fetch-coords.",
+        help="Genome assembly for Ensembl coordinate fetching (default: GRCh38).",
     )
     parser.add_argument(
         "--exon-color",
@@ -175,10 +165,10 @@ def main():
         counts_df = io.load_counts(files)
         print(f"  {len(scores_df)} variants loaded")
 
-        # --- Load or fetch cartoon data early so aa_exon_df is available for heatmap ---
+        # --- Fetch exon coords from Ensembl (aa_exon_df needed for heatmap) ---
         cartoon_data = io.load_cartoon(files)
-        if cartoon_data is None and args.fetch_coords:
-            print(f"[{gene}] No cartoon file found — querying Ensembl for canonical transcript...")
+        if cartoon_data is None:
+            print(f"[{gene}] Querying Ensembl for canonical transcript...")
             try:
                 tx_info = io.get_canonical_transcript(gene, assembly=args.assembly)
                 canonical_flag = " [canonical]" if tx_info["is_canonical"] else " [longest coding]"
@@ -306,7 +296,7 @@ def main():
                 args.output_dir / f"{cartoon_name}.{fmt}",
             )
         else:
-            print(f"[{gene}] No cartoon file found, skipping gene cartoon.")
+            print(f"[{gene}] No exon coordinates available, skipping gene cartoon.")
 
         edit_rates_df = io.load_edit_rates(files)
         if edit_rates_df is not None:

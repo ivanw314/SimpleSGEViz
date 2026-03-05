@@ -55,7 +55,7 @@ You should see the usage message. If you get a "command not found" error, make s
 ## Usage
 
 ```
-sgeviz <input_dir> <output_dir> [--format html|png|svg] [--excel] [--fetch-coords] [--protein-length N] [--px-per-aa N] [--gene-name NAME] [--exon-color HEX] [--lib-color HEX]
+sgeviz <input_dir> <output_dir> [--format html|png|svg] [--excel] [--assembly GRCh38|GRCh37] [--protein-length N] [--px-per-aa N] [--gene-name NAME] [--exon-color HEX] [--lib-color HEX]
 ```
 
 > If you haven't installed via `pip install -e .`, you can also run `python pipeline.py` directly with the same arguments.
@@ -68,8 +68,7 @@ sgeviz <input_dir> <output_dir> [--format html|png|svg] [--excel] [--fetch-coord
 | `output_dir` | Directory where output figures will be saved (created if it does not exist) |
 | `--format` | Output format for figures: `html`, `png`, or `svg` (default: `png`) |
 | `--excel` | Also write a multi-sheet Excel workbook for each gene (requires `openpyxl`) |
-| `--fetch-coords` | Automatically fetch exon coordinates from the Ensembl REST API using the gene symbol. Prompts you to confirm or override the auto-selected canonical transcript before proceeding. Requires internet access. |
-| `--assembly` | Genome assembly to use with `--fetch-coords`: `GRCh38` (default) or `GRCh37`. |
+| `--assembly` | Genome assembly for Ensembl coordinate fetching: `GRCh38` (default) or `GRCh37`. |
 | `--protein-length N` | Known full protein length in amino acids. If the data covers fewer residues the x-axis is extended to this length. If omitted, you are prompted interactively for each gene. |
 | `--px-per-aa N` | Pixels allocated per amino acid column in the AA heatmap (default: `4`). Reduce to produce a narrower figure, e.g. `--px-per-aa 2`. |
 | `--gene-name NAME` | Override the gene name used in figure titles and output filenames. Useful when the name auto-detected from the filename differs from the preferred display name. Cannot be used when multiple gene datasets are detected in the same input directory. |
@@ -91,7 +90,7 @@ sgeviz ./data/BRCA1/ ./output/BRCA1/ --px-per-aa 2 --gene-name "BRCA1 (exon 11)"
 Produces a narrower AA heatmap and overrides the auto-detected gene name in all figure titles and output filenames.
 
 ```bash
-sgeviz ./data/CTCF/ ./output/CTCF/ --fetch-coords --exon-color '#3498DB'
+sgeviz ./data/CTCF/ ./output/CTCF/ --exon-color '#3498DB'
 ```
 
 Exon coordinates are fetched automatically from Ensembl (GRCh38), the canonical transcript is shown for confirmation, and the exon cartoon is rendered in the specified color. If a `CTCF.targets.tsv` is present in the input directory the library cartoon is generated automatically as well.
@@ -125,7 +124,7 @@ Multiple genes can be processed in a single run by placing all their files in th
 | `*{gene}*Regeneron*` | Regeneron allele frequencies (CSV or Excel) |
 | `*{gene}*domain*` | Protein domain annotations (CSV or Excel). Adds a domain cartoon strip above the AA heatmap. File name matching is case-insensitive. See [Domain annotation file format](#domain-annotation-file-format) below. |
 | `*{gene}*editrates*` | Library edit rates (tab-delimited `.tsv`). File name matching is case-insensitive. See [Edit rates file format](#edit-rates-file-format) below. |
-| `*{gene}*targets*` | Library targets (tab-delimited `.tsv` with `editstart` and `editstop` columns). When present, the edit coordinate ranges are used as library amplicons for the cartoon library track. Pair with `--fetch-coords` to generate the library cartoon with no manual input. File name matching is case-insensitive. See [Targets file format](#targets-file-format) below. |
+| `*{gene}*targets*` | Library targets (tab-delimited `.tsv` with `editstart` and `editstop` columns). When present, the edit coordinate ranges are used as library amplicons for the cartoon library track, triggering `{gene}_library_cartoon`. File name matching is case-insensitive. See [Targets file format](#targets-file-format) below. |
 | `*{gene}*vep*` | VEP output — Excel (`.xlsx`) or tab-delimited text (`.txt`). AlphaMissense, REVEL, CADD, and SpliceAI scores are extracted and merged into the variant data, enabling the VEP predictor sub-panels in the AA heatmap. File name matching is case-insensitive. See [VEP file format](#vep-file-format) below. |
 
 ### Required columns in `*allscores.tsv`
@@ -172,8 +171,8 @@ All files are written to `output_dir` with the gene name as a prefix.
 | `{gene}_clinvar_roc` | ROC curve for B/LB vs P/LP classification using SGE score | If ClinVar file detected and both classes present |
 | `{gene}_maf_vs_score` | Binned heatmap of log10(allele frequency) vs fitness score | If gnomAD or Regeneron file detected |
 | `{gene}_edit_rate_barplot` | Bar chart of library edit rates per SGE target, grouped by replicate | If edit rates file detected |
-| `{gene}_exon_cartoon` | Scalable exon structure cartoon with UTR/CDS regions, ATG/stop markers, and compressed introns | If `--fetch-coords` used and no `*targets*` TSV present |
-| `{gene}_library_cartoon` | Exon structure cartoon stacked above a library amplicon coverage track | If `--fetch-coords` used and a `*targets*` TSV is detected |
+| `{gene}_exon_cartoon` | Scalable exon structure cartoon with UTR/CDS regions, ATG/stop markers, and compressed introns | If Ensembl fetch succeeds and no `*targets*` TSV present |
+| `{gene}_library_cartoon` | Exon structure cartoon stacked above a library amplicon coverage track | If Ensembl fetch succeeds and a `*targets*` TSV is detected |
 
 ### Excel workbook (with `--excel`)
 
@@ -285,7 +284,7 @@ CTCF_X3H_R1R4_D05	0.000138443
 
 ## Targets file format
 
-The targets file provides library amplicon coordinates directly from the SGE library design. Any tab-delimited `.tsv` file matching `*{gene}*targets*` is detected automatically. When present together with `--fetch-coords`, it triggers generation of `{gene}_library_cartoon`.
+The targets file provides library amplicon coordinates directly from the SGE library design. Any tab-delimited `.tsv` file matching `*{gene}*targets*` is detected automatically. When present, it triggers generation of `{gene}_library_cartoon` (requires a successful Ensembl fetch for exon coordinates).
 
 Required columns (additional columns are ignored):
 
