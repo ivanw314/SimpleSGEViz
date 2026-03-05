@@ -232,9 +232,26 @@ def main():
 
         cartoon_data = io.load_cartoon(files)
         if cartoon_data is None and args.fetch_coords:
-            print(f"[{gene}] No cartoon file found — fetching exon coords from Ensembl...")
+            print(f"[{gene}] No cartoon file found — querying Ensembl for canonical transcript...")
             try:
-                cartoon_data = io.fetch_exon_coords(gene, assembly=args.assembly)
+                tx_info = io.get_canonical_transcript(gene, assembly=args.assembly)
+                canonical_flag = " [canonical]" if tx_info["is_canonical"] else " [longest coding]"
+                print(
+                    f"  Auto-selected: {tx_info['transcript_id']}"
+                    f"  ({tx_info['biotype']}, {tx_info['n_exons']} exons, "
+                    f"{tx_info['strand']}-strand){canonical_flag}"
+                )
+                raw = input(
+                    "  Press Enter to use this transcript, "
+                    "or enter a different Ensembl transcript ID: "
+                ).strip()
+                chosen_tx = raw if raw else None
+                cartoon_data = io.fetch_exon_coords(
+                    gene,
+                    transcript_id=chosen_tx,
+                    assembly=args.assembly,
+                    _raw_data=tx_info["_raw_data"],
+                )
             except (ValueError, ConnectionError) as exc:
                 print(f"[{gene}] Could not fetch exon coords: {exc}")
         if cartoon_data is not None:

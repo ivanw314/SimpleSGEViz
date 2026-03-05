@@ -143,11 +143,90 @@ _SPECIES_MAP = {
 }
 
 
+def _fetch_gene_data(gene_symbol: str, species: str, assembly: str) -> dict:
+    """Fetch raw gene data from the Ensembl REST API (internal helper)."""
+    ens_species = _SPECIES_MAP.get(species.lower(), species.lower())
+    base_url = (
+        "https://grch37.rest.ensembl.org"
+        if assembly.upper() == "GRCH37"
+        else "https://rest.ensembl.org"
+    )
+    url = (
+        f"{base_url}/lookup/symbol/{ens_species}/{gene_symbol}"
+        "?expand=1&content-type=application/json"
+    )
+    try:
+        with urllib.request.urlopen(url, timeout=30) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        raise ValueError(
+            f"Ensembl REST API returned HTTP {e.code} for gene '{gene_symbol}'. "
+            "Check that the gene symbol and species are correct."
+        ) from e
+    except urllib.error.URLError as e:
+        raise ConnectionError(
+            f"Could not reach Ensembl REST API: {e.reason}. "
+            "Check your internet connection."
+        ) from e
+
+
+def _select_transcript(data: dict, gene_symbol: str, transcript_id: str | None):
+    """Pick a transcript dict from raw Ensembl gene data (internal helper)."""
+    transcripts = data.get("Transcript", [])
+    if not transcripts:
+        raise ValueError(f"No transcripts found for gene '{gene_symbol}'.")
+    if transcript_id is not None:
+        tx = next((t for t in transcripts if t["id"] == transcript_id), None)
+        if tx is None:
+            available = [t["id"] for t in transcripts]
+            raise ValueError(
+                f"Transcript '{transcript_id}' not found for '{gene_symbol}'. "
+                f"Available: {available}"
+            )
+        return tx
+    canonical = [t for t in transcripts if t.get("is_canonical") == 1]
+    return canonical[0] if canonical else max(
+        transcripts,
+        key=lambda t: (t.get("Translation") is not None, t.get("length", 0)),
+    )
+
+
+def get_canonical_transcript(
+    gene_symbol: str,
+    species: str = "human",
+    assembly: str = "GRCh38",
+) -> dict:
+    """Return a summary dict for the canonical transcript of a gene.
+
+    Fetches from the Ensembl REST API and returns a dict with keys:
+
+    - ``transcript_id``: Ensembl transcript ID (e.g. ``"ENST00000357654"``)
+    - ``biotype``: transcript biotype (e.g. ``"protein_coding"``)
+    - ``n_exons``: number of exons
+    - ``is_canonical``: whether Ensembl marks this as the canonical transcript
+    - ``strand``: ``"plus"`` or ``"minus"``
+
+    Useful for presenting the auto-selected transcript to a user before
+    calling :func:`fetch_exon_coords`.
+    """
+    data = _fetch_gene_data(gene_symbol, species, assembly)
+    tx = _select_transcript(data, gene_symbol, transcript_id=None)
+    return {
+        "transcript_id": tx["id"],
+        "biotype": tx.get("biotype", "unknown"),
+        "n_exons": len(tx.get("Exon", [])),
+        "is_canonical": bool(tx.get("is_canonical") == 1),
+        "strand": "minus" if data["strand"] == -1 else "plus",
+        "_raw_data": data,  # passed through to avoid a second API call
+    }
+
+
 def fetch_exon_coords(
     gene_symbol: str,
     transcript_id: str | None = None,
     species: str = "human",
     assembly: str = "GRCh38",
+    _raw_data: dict | None = None,
 ) -> tuple[pd.DataFrame, None, pd.DataFrame]:
     """Fetch exon coordinates for a gene from the Ensembl REST API.
 
@@ -163,50 +242,8 @@ def fetch_exon_coords(
             ``"homo_sapiens"``). Defaults to ``"human"``.
         assembly: Genome assembly — ``"GRCh38"`` (default) or ``"GRCh37"``.
     """
-    ens_species = _SPECIES_MAP.get(species.lower(), species.lower())
-    base_url = (
-        "https://grch37.rest.ensembl.org"
-        if assembly.upper() == "GRCH37"
-        else "https://rest.ensembl.org"
-    )
-    url = (
-        f"{base_url}/lookup/symbol/{ens_species}/{gene_symbol}"
-        "?expand=1&content-type=application/json"
-    )
-
-    try:
-        with urllib.request.urlopen(url, timeout=30) as resp:
-            data = json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        raise ValueError(
-            f"Ensembl REST API returned HTTP {e.code} for gene '{gene_symbol}'. "
-            "Check that the gene symbol and species are correct."
-        ) from e
-    except urllib.error.URLError as e:
-        raise ConnectionError(
-            f"Could not reach Ensembl REST API: {e.reason}. "
-            "Check your internet connection."
-        ) from e
-
-    transcripts = data.get("Transcript", [])
-    if not transcripts:
-        raise ValueError(f"No transcripts found for gene '{gene_symbol}'.")
-
-    if transcript_id is not None:
-        tx = next((t for t in transcripts if t["id"] == transcript_id), None)
-        if tx is None:
-            available = [t["id"] for t in transcripts]
-            raise ValueError(
-                f"Transcript '{transcript_id}' not found for '{gene_symbol}'. "
-                f"Available: {available}"
-            )
-    else:
-        canonical = [t for t in transcripts if t.get("is_canonical") == 1]
-        tx = canonical[0] if canonical else max(
-            transcripts,
-            key=lambda t: (t.get("Translation") is not None, t.get("length", 0)),
-        )
-
+    data = _raw_data or _fetch_gene_data(gene_symbol, species, assembly)
+    tx = _select_transcript(data, gene_symbol, transcript_id)
     strand = "minus" if data["strand"] == -1 else "plus"
 
     exons = sorted(tx.get("Exon", []), key=lambda e: e["start"])
