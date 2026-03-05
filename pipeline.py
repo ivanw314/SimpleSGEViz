@@ -158,6 +158,40 @@ def main():
         counts_df = io.load_counts(files)
         print(f"  {len(scores_df)} variants loaded")
 
+        # --- Load or fetch cartoon data early so aa_exon_df is available for heatmap ---
+        cartoon_data = io.load_cartoon(files)
+        if cartoon_data is None and args.fetch_coords:
+            print(f"[{gene}] No cartoon file found — querying Ensembl for canonical transcript...")
+            try:
+                tx_info = io.get_canonical_transcript(gene, assembly=args.assembly)
+                canonical_flag = " [canonical]" if tx_info["is_canonical"] else " [longest coding]"
+                print(
+                    f"  Auto-selected: {tx_info['transcript_id']}"
+                    f"  ({tx_info['biotype']}, {tx_info['n_exons']} exons, "
+                    f"{tx_info['strand']}-strand){canonical_flag}"
+                )
+                raw = input(
+                    "  Press Enter to use this transcript, "
+                    "or enter a different Ensembl transcript ID: "
+                ).strip()
+                chosen_tx = raw if raw else None
+                cartoon_data = io.fetch_exon_coords(
+                    gene,
+                    transcript_id=chosen_tx,
+                    assembly=args.assembly,
+                    _raw_data=tx_info["_raw_data"],
+                )
+            except (ValueError, ConnectionError) as exc:
+                print(f"[{gene}] Could not fetch exon coords: {exc}")
+
+        aa_exon_df = None
+        if cartoon_data is not None:
+            _exon_df, _, _meta_df = cartoon_data
+            try:
+                aa_exon_df = io.exon_genomic_to_aa(_exon_df, _meta_df)
+            except Exception as exc:
+                print(f"[{gene}] Could not convert exon coords to AA positions: {exc}")
+
         print(f"[{gene}] Generating figures (format: {fmt})")
 
         hist, strip = histogram_strip.make_figures(scores_df, thresholds, gene=gene)
@@ -189,6 +223,7 @@ def main():
                     domains_path=domains_path,
                     protein_length=protein_lengths[gene],
                     px_per_aa=args.px_per_aa,
+                    aa_exon_df=aa_exon_df,
                 ),
                 args.output_dir / f"{gene}_aa_heatmap.{fmt}",
             )
@@ -230,30 +265,6 @@ def main():
         else:
             print(f"[{gene}] No allele frequency files found, skipping MAF figure.")
 
-        cartoon_data = io.load_cartoon(files)
-        if cartoon_data is None and args.fetch_coords:
-            print(f"[{gene}] No cartoon file found — querying Ensembl for canonical transcript...")
-            try:
-                tx_info = io.get_canonical_transcript(gene, assembly=args.assembly)
-                canonical_flag = " [canonical]" if tx_info["is_canonical"] else " [longest coding]"
-                print(
-                    f"  Auto-selected: {tx_info['transcript_id']}"
-                    f"  ({tx_info['biotype']}, {tx_info['n_exons']} exons, "
-                    f"{tx_info['strand']}-strand){canonical_flag}"
-                )
-                raw = input(
-                    "  Press Enter to use this transcript, "
-                    "or enter a different Ensembl transcript ID: "
-                ).strip()
-                chosen_tx = raw if raw else None
-                cartoon_data = io.fetch_exon_coords(
-                    gene,
-                    transcript_id=chosen_tx,
-                    assembly=args.assembly,
-                    _raw_data=tx_info["_raw_data"],
-                )
-            except (ValueError, ConnectionError) as exc:
-                print(f"[{gene}] Could not fetch exon coords: {exc}")
         if cartoon_data is not None:
             exon_df, lib_df, meta_df = cartoon_data
             if lib_df is not None and not lib_df.empty:

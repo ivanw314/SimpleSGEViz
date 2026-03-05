@@ -273,6 +273,46 @@ def fetch_exon_coords(
     return exon_df, None, meta_df
 
 
+def exon_genomic_to_aa(
+    exon_df: pd.DataFrame,
+    meta_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """Convert genomic exon coordinates to amino acid residue positions.
+
+    Walks exons in transcription order, computes each exon's CDS overlap
+    using the ATG and stop positions in ``meta_df``, and accumulates CDS
+    bases to derive per-exon amino acid boundaries.
+
+    Returns a DataFrame with columns ``aa_start`` and ``aa_end`` suitable
+    for the exon track in ``aa_heatmap.make_plot()``.  Purely UTR exons
+    (no CDS overlap) are omitted.
+    """
+    meta = dict(zip(meta_df["type"].str.lower(), meta_df["info"].astype(str).str.strip()))
+    strand = meta.get("strand", "plus").lower()
+    atg_pos = int(float(meta["atg"]))
+    stop_pos = int(float(meta["stop"]))
+
+    cds_lo = min(atg_pos, stop_pos)
+    cds_hi = max(atg_pos, stop_pos)
+
+    exons = exon_df.sort_values("start", ascending=(strand != "minus"))
+
+    aa_exons = []
+    cds_bases_so_far = 0
+    for _, exon in exons.iterrows():
+        ov_start = max(int(exon["start"]), cds_lo)
+        ov_end = min(int(exon["end"]), cds_hi)
+        cds_bases = max(0, ov_end - ov_start)
+        if cds_bases > 0:
+            aa_exons.append({
+                "aa_start": round(cds_bases_so_far / 3 + 1, 2),
+                "aa_end":   round((cds_bases_so_far + cds_bases) / 3 + 1, 2),
+            })
+            cds_bases_so_far += cds_bases
+
+    return pd.DataFrame(aa_exons, columns=["aa_start", "aa_end"])
+
+
 def load_edit_rates(files: dict):
     """Load an edit rates TSV file if present.
 

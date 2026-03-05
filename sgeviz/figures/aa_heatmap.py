@@ -334,6 +334,7 @@ def make_plot(
     domains_path=None,
     protein_length: int | None = None,
     px_per_aa: int = 3,
+    aa_exon_df: "pd.DataFrame | None" = None,
 ) -> alt.Chart:
     """Generate amino acid substitution heatmap of SGE fitness scores.
 
@@ -477,12 +478,14 @@ def make_plot(
     if domains_path is not None:
         segments_df = _load_domains(domains_path, prot_length)
         domain_chart = _make_domain_cartoon(segments_df, prot_length, width)
-        exon_df = _load_exons(domains_path)
+        exon_df = _load_exons(domains_path) or aa_exon_df
         if exon_df is not None:
             exon_chart = _make_exon_cartoon(exon_df, prot_length, width)
             panels.append(alt.vconcat(domain_chart, exon_chart, spacing=0))
         else:
             panels.append(domain_chart)
+    elif aa_exon_df is not None:
+        panels.append(_make_exon_cartoon(aa_exon_df, prot_length, width))
 
     has_del = (
         "var_type" in df.columns
