@@ -248,7 +248,9 @@ def fetch_exon_coords(
     tx = _select_transcript(data, gene_symbol, transcript_id)
     strand = "minus" if data["strand"] == -1 else "plus"
 
-    exons = sorted(tx.get("Exon", []), key=lambda e: e["start"])
+    # Sort in transcription order (5'→3') so X1 is always the first exon.
+    # Plus-strand: ascending genomic start; minus-strand: descending genomic start.
+    exons = sorted(tx.get("Exon", []), key=lambda e: e["start"], reverse=(strand == "minus"))
     exon_df = pd.DataFrame([
         {"exon": f"X{i + 1}", "start": e["start"], "end": e["end"]}
         for i, e in enumerate(exons)
