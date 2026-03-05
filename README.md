@@ -55,7 +55,7 @@ You should see the usage message. If you get a "command not found" error, make s
 ## Usage
 
 ```
-sgeviz <input_dir> <output_dir> [--format html|png|svg] [--excel] [--protein-length N] [--px-per-aa N] [--gene-name NAME]
+sgeviz <input_dir> <output_dir> [--format html|png|svg] [--excel] [--fetch-coords] [--protein-length N] [--px-per-aa N] [--gene-name NAME] [--exon-color HEX] [--lib-color HEX]
 ```
 
 > If you haven't installed via `pip install -e .`, you can also run `python pipeline.py` directly with the same arguments.
@@ -68,9 +68,13 @@ sgeviz <input_dir> <output_dir> [--format html|png|svg] [--excel] [--protein-len
 | `output_dir` | Directory where output figures will be saved (created if it does not exist) |
 | `--format` | Output format for figures: `html`, `png`, or `svg` (default: `png`) |
 | `--excel` | Also write a multi-sheet Excel workbook for each gene (requires `openpyxl`) |
+| `--fetch-coords` | Automatically fetch exon coordinates from the Ensembl REST API using the gene symbol. Prompts you to confirm or override the auto-selected canonical transcript before proceeding. Requires internet access. |
+| `--assembly` | Genome assembly to use with `--fetch-coords`: `GRCh38` (default) or `GRCh37`. |
 | `--protein-length N` | Known full protein length in amino acids. If the data covers fewer residues the x-axis is extended to this length. If omitted, you are prompted interactively for each gene. |
 | `--px-per-aa N` | Pixels allocated per amino acid column in the AA heatmap (default: `4`). Reduce to produce a narrower figure, e.g. `--px-per-aa 2`. |
 | `--gene-name NAME` | Override the gene name used in figure titles and output filenames. Useful when the name auto-detected from the filename differs from the preferred display name. Cannot be used when multiple gene datasets are detected in the same input directory. |
+| `--exon-color HEX` | Exon fill color in gene cartoons (e.g. `'#E74C3C'`). Default: `#2E86C1`. |
+| `--lib-color HEX` | Library amplicon color in gene cartoons (e.g. `'#2ECC71'`). Default: `#888888`. |
 
 ### Example
 
@@ -85,6 +89,12 @@ sgeviz ./data/BRCA1/ ./output/BRCA1/ --px-per-aa 2 --gene-name "BRCA1 (exon 11)"
 ```
 
 Produces a narrower AA heatmap and overrides the auto-detected gene name in all figure titles and output filenames.
+
+```bash
+sgeviz ./data/CTCF/ ./output/CTCF/ --fetch-coords --exon-color '#3498DB'
+```
+
+Exon coordinates are fetched automatically from Ensembl (GRCh38), the canonical transcript is shown for confirmation, and the exon cartoon is rendered in the specified color. If a `CTCF.targets.tsv` is present in the input directory the library cartoon is generated automatically as well.
 
 ---
 
@@ -115,7 +125,7 @@ Multiple genes can be processed in a single run by placing all their files in th
 | `*{gene}*Regeneron*` | Regeneron allele frequencies (CSV or Excel) |
 | `*{gene}*domain*` | Protein domain annotations (CSV or Excel). Adds a domain cartoon strip above the AA heatmap. File name matching is case-insensitive. See [Domain annotation file format](#domain-annotation-file-format) below. |
 | `*{gene}*editrates*` | Library edit rates (tab-delimited `.tsv`). File name matching is case-insensitive. See [Edit rates file format](#edit-rates-file-format) below. |
-| `*{gene}*cartoon*` | Gene structure cartoon (Excel `.xlsx`). Generates a scalable exon cartoon with UTR/CDS distinction, ATG/stop markers, and compressed introns. If a `lib_coords` sheet is present a library amplicon track is added below. File name matching is case-insensitive. See [Gene cartoon file format](#gene-cartoon-file-format) below. |
+| `*{gene}*targets*` | Library targets (tab-delimited `.tsv` with `editstart` and `editstop` columns). When present, the edit coordinate ranges are used as library amplicons for the cartoon library track. Pair with `--fetch-coords` to generate the library cartoon with no manual input. File name matching is case-insensitive. See [Targets file format](#targets-file-format) below. |
 | `*{gene}*vep*` | VEP output — Excel (`.xlsx`) or tab-delimited text (`.txt`). AlphaMissense, REVEL, CADD, and SpliceAI scores are extracted and merged into the variant data, enabling the VEP predictor sub-panels in the AA heatmap. File name matching is case-insensitive. See [VEP file format](#vep-file-format) below. |
 
 ### Required columns in `*allscores.tsv`
@@ -162,8 +172,8 @@ All files are written to `output_dir` with the gene name as a prefix.
 | `{gene}_clinvar_roc` | ROC curve for B/LB vs P/LP classification using SGE score | If ClinVar file detected and both classes present |
 | `{gene}_maf_vs_score` | Binned heatmap of log10(allele frequency) vs fitness score | If gnomAD or Regeneron file detected |
 | `{gene}_edit_rate_barplot` | Bar chart of library edit rates per SGE target, grouped by replicate | If edit rates file detected |
-| `{gene}_exon_cartoon` | Scalable exon structure cartoon with UTR/CDS regions, ATG/stop markers, and `//` break marks at compressed introns | If cartoon file detected (no `lib_coords` sheet) |
-| `{gene}_library_cartoon` | Exon structure cartoon stacked above a library amplicon coverage track | If cartoon file detected with `lib_coords` sheet |
+| `{gene}_exon_cartoon` | Scalable exon structure cartoon with UTR/CDS regions, ATG/stop markers, and compressed introns | If `--fetch-coords` used and no `*targets*` TSV present |
+| `{gene}_library_cartoon` | Exon structure cartoon stacked above a library amplicon coverage track | If `--fetch-coords` used and a `*targets*` TSV is detected |
 
 ### Excel workbook (with `--excel`)
 
@@ -273,41 +283,24 @@ CTCF_X3H_R1R4_D05	0.000138443
 
 ---
 
-## Gene cartoon file format
+## Targets file format
 
-The gene cartoon file is an Excel workbook (`.xlsx`) whose filename must contain `cartoon` (case-insensitive). Recommended naming: `{gene}.cartoon.xlsx` (e.g. `DARS2.cartoon.xlsx`). Avoid including `domain` in the filename — files matching both `*domain*` and `*cartoon*` are routed to the cartoon figure and will not be treated as domain annotation files. It generates one of two figures:
+The targets file provides library amplicon coordinates directly from the SGE library design. Any tab-delimited `.tsv` file matching `*{gene}*targets*` is detected automatically. When present together with `--fetch-coords`, it triggers generation of `{gene}_library_cartoon`.
 
-- **`{gene}_exon_cartoon`** — an exon structure cartoon with UTR/CDS height distinction, ATG/stop codon markers, `//` break marks at compressed introns, and exon number labels. Both introns and UTR regions are compressed using a min/max pixel-width scale, so very long UTRs or introns do not dominate the figure.
-- **`{gene}_library_cartoon`** — the above exon track stacked above a library amplicon coverage track (generated when the `lib_coords` sheet is present).
-
-### Sheet: `exon_coords` (required)
+Required columns (additional columns are ignored):
 
 | Column | Description |
 |---|---|
-| `exon` | Exon label (e.g. `GENE_X1`) |
-| `start` | Genomic start coordinate |
-| `end` | Genomic end coordinate |
+| `editstart` | Genomic start of the edit window (used as amplicon start) |
+| `editstop` | Genomic end of the edit window (used as amplicon end) |
 
-### Sheet: `metadata` (required)
+### Example (excerpt)
 
-A two-column table with `type` and `info` rows:
-
-| `type` value | `info` description |
-|---|---|
-| `atg` | Genomic position of the start codon (used to delimit 5′ UTR from CDS) |
-| `stop` | Genomic position of the stop codon (used to delimit CDS from 3′ UTR) |
-| `strand` | Gene strand: `plus` (default) or `minus`. For minus-strand genes all coordinates in all sheets should still be in standard genomic convention (start < end); the figure is automatically drawn 5′→3′ left-to-right. |
-| `exon_color` | Hex fill color for exon rectangles (default: `#2E86C1`) |
-| `lib_color` | Hex fill color for library amplicons (default: `#888888`) |
-
-### Sheet: `lib_coords` (optional)
-
-| Column | Description |
-|---|---|
-| `start` | Genomic start of the library amplicon |
-| `end` | Genomic end of the library amplicon |
-
-When present, a library amplicon track is drawn below the exon cartoon. Regions covered by multiple overlapping amplicons are progressively darkened. A bracket above the band labels the estimated number of variants covered (`covered_bases × 3` SNVs + `covered_bases ÷ 3` 3-bp deletions), and the left margin shows the total number of amplicons.
+```
+target	chrom	editstart	editstop	ampstart	ampstop	...
+CTCF_X3A	chr16	67610814	67610930	67610735	67610994	...
+CTCF_X3B	chr16	67610911	67611033	67610857	67611109	...
+```
 
 ---
 
