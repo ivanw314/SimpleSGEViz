@@ -303,13 +303,14 @@ def exon_genomic_to_aa(
 
     aa_exons = []
     cds_bases_so_far = 0
-    for _, exon in exons.iterrows():
+    for exon_num, (_, exon) in enumerate(exons.iterrows(), start=1):
         ov_start = max(int(exon["start"]), cds_lo)
         ov_end = min(int(exon["end"]), cds_hi)
         # Ensembl uses 1-based fully-closed intervals, so bases = end - start + 1
         cds_bases = max(0, ov_end - ov_start + 1)
         if cds_bases > 0:
             aa_exons.append({
+                "exon_num": exon_num,
                 "aa_start": round(cds_bases_so_far / 3 + 1, 2),
                 "aa_end":   round((cds_bases_so_far + cds_bases) / 3 + 1, 2),
             })
@@ -318,7 +319,7 @@ def exon_genomic_to_aa(
     # Subtract 3 bases for the stop codon (included in Ensembl Translation coordinates)
     # before converting to amino acid count.
     protein_length = max(0, cds_bases_so_far - 3) // 3
-    return pd.DataFrame(aa_exons, columns=["aa_start", "aa_end"]), protein_length
+    return pd.DataFrame(aa_exons, columns=["exon_num", "aa_start", "aa_end"]), protein_length
 
 
 def load_targets(files: dict) -> "pd.DataFrame | None":

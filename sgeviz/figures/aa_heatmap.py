@@ -118,7 +118,10 @@ def _prep_aa_exon_df(aa_exon_df: "pd.DataFrame | None") -> "pd.DataFrame | None"
     if aa_exon_df is None or aa_exon_df.empty:
         return None
     df = aa_exon_df.rename(columns={"aa_start": "start", "aa_end": "end"}).copy()
-    df["label"] = [str(i + 1) for i in range(len(df))]
+    if "exon_num" in df.columns:
+        df["label"] = df["exon_num"].astype(str)
+    else:
+        df["label"] = [str(i + 1) for i in range(len(df))]
     df["center"] = (df["start"] + df["end"]) / 2
     return df[["start", "end", "label", "center"]]
 
