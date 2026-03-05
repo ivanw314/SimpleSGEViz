@@ -467,6 +467,11 @@ def make_plot(
     else:
         lower = heatmap
 
+    # Clip exon aa_end to prot_length + 1 so the stop codon doesn't expand the shared x scale
+    if aa_exon_df is not None:
+        aa_exon_df = aa_exon_df.copy()
+        aa_exon_df["aa_end"] = aa_exon_df["aa_end"].clip(upper=prot_length + 1)
+
     # Build panel stack top-to-bottom: domains → deletions → heatmap(+vep)
     panels = []
 
