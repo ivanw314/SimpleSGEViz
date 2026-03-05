@@ -268,6 +268,7 @@ def _make_del_panel(
     ]
     del_df["_cds_start"] = del_df["_cds_start"].astype(int)
     del_df["ps_aa_start"] = ((del_df["_cds_start"] + 2) / 3).round(2)
+    del_df = del_df.loc[del_df["ps_aa_start"] <= prot_length]
     del_df["Consequence"] = del_df["Consequence"].replace(_DEL_CONSEQUENCE_MAP)
 
     y_min = min(-0.5, del_df["score"].min())
