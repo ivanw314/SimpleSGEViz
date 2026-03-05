@@ -72,21 +72,22 @@ def _load_domains(path, prot_length: int) -> pd.DataFrame:
             segments.append({"start": pos, "end": row["start"], "label": "", "color": "#CCCCCC", "tier": 0})
         segments.append({
             "start": row["start"],
-            "end": row["end"],
+            "end": row["end"] + 1,
             "label": row["region_name"],
             "color": row["color"],
             "tier": 0,
         })
-        pos = row["end"]
+        pos = row["end"] + 1
     if pos <= prot_length:
         segments.append({"start": pos, "end": prot_length + 1, "label": "", "color": "#CCCCCC", "tier": 0})
 
     # Insert tier-1 sub-features by splitting any overlapping parent segment
     tier1 = raw.loc[raw["tier"] == 1].sort_values("start").reset_index(drop=True)
     for _, sub in tier1.iterrows():
+        sub_end = sub["end"] + 1  # convert inclusive end to exclusive
         new_segs = []
         for seg in segments:
-            if sub["start"] >= seg["end"] or sub["end"] <= seg["start"]:
+            if sub["start"] >= seg["end"] or sub_end <= seg["start"]:
                 new_segs.append(seg)
                 continue
             # Split: piece before sub-feature
@@ -96,35 +97,31 @@ def _load_domains(path, prot_length: int) -> pd.DataFrame:
             # The sub-feature itself (clipped to parent bounds)
             new_segs.append({
                 "start": max(seg["start"], sub["start"]),
-                "end": min(seg["end"], sub["end"]),
+                "end": min(seg["end"], sub_end),
                 "label": sub["region_name"],
                 "color": sub["color"],
                 "tier": 1,
             })
             # Piece after sub-feature
-            if seg["end"] > sub["end"]:
-                new_segs.append({"start": sub["end"], "end": seg["end"],
+            if seg["end"] > sub_end:
+                new_segs.append({"start": sub_end, "end": seg["end"],
                                  "label": seg["label"], "color": seg["color"], "tier": seg["tier"]})
         segments = new_segs
 
     return pd.DataFrame(segments)
 
 
-def _load_exons(path) -> pd.DataFrame | None:
-    """Load exon boundaries from the 'exons' sheet of a domains Excel file.
 
-    Expected columns: aa_start, aa_end (fractional amino acid positions).
-    Labels are assigned sequentially (1, 2, 3, …).
-    Returns None if the file is not Excel or has no 'exons' sheet.
-    """
-    suffix = Path(path).suffix.lower()
-    if suffix not in (".xlsx", ".xls"):
+def _prep_aa_exon_df(aa_exon_df: "pd.DataFrame | None") -> "pd.DataFrame | None":
+    """Convert aa_start/aa_end columns to the start/end/label/center format
+    expected by _make_exon_cartoon. Returns None if input is None."""
+    if aa_exon_df is None or aa_exon_df.empty:
         return None
-    xl = pd.ExcelFile(path)
-    if "exons" not in xl.sheet_names:
-        return None
-    df = xl.parse("exons").rename(columns={"aa_start": "start", "aa_end": "end"})
-    df["label"] = [str(i + 1) for i in range(len(df))]
+    df = aa_exon_df.rename(columns={"aa_start": "start", "aa_end": "end"}).copy()
+    if "exon_num" in df.columns:
+        df["label"] = df["exon_num"].astype(str)
+    else:
+        df["label"] = [str(i + 1) for i in range(len(df))]
     df["center"] = (df["start"] + df["end"]) / 2
     return df[["start", "end", "label", "center"]]
 
@@ -274,6 +271,7 @@ def _make_del_panel(
     ]
     del_df["_cds_start"] = del_df["_cds_start"].astype(int)
     del_df["ps_aa_start"] = ((del_df["_cds_start"] + 2) / 3).round(2)
+    del_df = del_df.loc[del_df["ps_aa_start"] <= prot_length]
     del_df["Consequence"] = del_df["Consequence"].replace(_DEL_CONSEQUENCE_MAP)
 
     y_min = min(-0.5, del_df["score"].min())
@@ -334,6 +332,7 @@ def make_plot(
     domains_path=None,
     protein_length: int | None = None,
     px_per_aa: int = 3,
+    aa_exon_df: "pd.DataFrame | None" = None,
 ) -> alt.Chart:
     """Generate amino acid substitution heatmap of SGE fitness scores.
 
@@ -367,6 +366,7 @@ def make_plot(
     )
     snv_df = snv_df.dropna(subset=["AApos"])
     snv_df["AApos"] = snv_df["AApos"].astype(int)
+    snv_df = snv_df.loc[snv_df["og_AA"] != "*"]
 
     if "max_SpliceAI" in snv_df.columns:
         snv_df = snv_df.loc[snv_df["max_SpliceAI"] <= 0.2]
@@ -471,18 +471,25 @@ def make_plot(
     else:
         lower = heatmap
 
+    # Clip exon aa_end to prot_length + 1 so the stop codon doesn't expand the shared x scale
+    if aa_exon_df is not None:
+        aa_exon_df = aa_exon_df.copy()
+        aa_exon_df["aa_end"] = aa_exon_df["aa_end"].clip(upper=prot_length + 1)
+
     # Build panel stack top-to-bottom: domains → deletions → heatmap(+vep)
     panels = []
 
     if domains_path is not None:
         segments_df = _load_domains(domains_path, prot_length)
         domain_chart = _make_domain_cartoon(segments_df, prot_length, width)
-        exon_df = _load_exons(domains_path)
+        exon_df = _prep_aa_exon_df(aa_exon_df)
         if exon_df is not None:
             exon_chart = _make_exon_cartoon(exon_df, prot_length, width)
             panels.append(alt.vconcat(domain_chart, exon_chart, spacing=0))
         else:
             panels.append(domain_chart)
+    elif aa_exon_df is not None:
+        panels.append(_make_exon_cartoon(_prep_aa_exon_df(aa_exon_df), prot_length, width))
 
     has_del = (
         "var_type" in df.columns

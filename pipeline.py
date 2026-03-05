@@ -13,7 +13,7 @@ Optional (figures generated only if detected):
     *{gene}*gnomAD*     gnomAD allele frequencies (CSV or Excel)
     *{gene}*Regeneron*  Regeneron allele frequencies (CSV or Excel)
     *{gene}*editrates*  Library edit rates (TSV with target_rep + edit_rate columns)
-    *{gene}*cartoon*    Gene cartoon Excel file (sheets: exon_coords, metadata, optionally lib_coords)
+    *{gene}*targets*    Library targets TSV (columns: editstart, editstop; used as library amplicons)
     *{gene}*vep*        VEP Excel output (.xlsx) with AlphaMissense, REVEL, CADD, SpliceAI scores
 
 Outputs (saved to output_dir):
@@ -26,8 +26,8 @@ Outputs (saved to output_dir):
     {gene}_clinvar_roc            ROC curve for SGE score B/LB vs P/LP classification (if ClinVar file present)
     {gene}_maf_vs_score           Allele frequency vs. score heatmap (if AF files present)
     {gene}_edit_rate_barplot      Library edit rate bar plot by target (if *{gene}*editrates* file present)
-    {gene}_exon_cartoon           Exon structure cartoon (if *{gene}*cartoon* file present, no lib_coords sheet)
-    {gene}_library_cartoon        Exon + library design cartoon (if *{gene}*cartoon* file with lib_coords sheet)
+    {gene}_exon_cartoon           Exon structure cartoon (fetched from Ensembl; no *targets* file)
+    {gene}_library_cartoon        Exon + library design cartoon (fetched from Ensembl + *targets* file)
     {gene}_data.xlsx              Multi-sheet Excel workbook (if --excel flag is set)
 
 PNG and SVG output require vl-convert-python (pip install vl-convert-python).
@@ -98,6 +98,28 @@ def parse_args():
         help="Override the gene name used in figure titles and output filenames. "
              "Cannot be used when multiple gene datasets are detected.",
     )
+    parser.add_argument(
+        "--assembly",
+        choices=["GRCh38", "GRCh37"],
+        default="GRCh38",
+        help="Genome assembly for Ensembl coordinate fetching (default: GRCh38).",
+    )
+    parser.add_argument(
+        "--exon-color",
+        type=str,
+        default=None,
+        metavar="HEX",
+        help="Override exon color in gene cartoons (e.g. '#2E86C1'). "
+             "Defaults to the value in the cartoon metadata file, or '#2E86C1'.",
+    )
+    parser.add_argument(
+        "--lib-color",
+        type=str,
+        default=None,
+        metavar="HEX",
+        help="Override library amplicon color in gene cartoons (e.g. '#888888'). "
+             "Defaults to the value in the cartoon metadata file, or '#888888'.",
+    )
     return parser.parse_args()
 
 
@@ -125,16 +147,6 @@ def main():
         genes = {args.gene_name: genes[original]}
         print(f"  Gene name overridden: '{original}' -> '{args.gene_name}'")
 
-    # --- Resolve protein lengths ---
-    # If --protein-length was not supplied, prompt interactively for each gene.
-    protein_lengths: dict[str, int | None] = {}
-    for gene in genes:
-        if args.protein_length is not None:
-            protein_lengths[gene] = args.protein_length
-        else:
-            raw = input(f"Protein length for {gene} (press Enter to estimate from data): ").strip()
-            protein_lengths[gene] = int(raw) if raw else None
-
     # --- Process each gene ---
     for gene, files in genes.items():
         print(f"\n[{gene}] Loading data...")
@@ -142,6 +154,52 @@ def main():
         scores_df = process.load_vep(files, scores_df)
         counts_df = io.load_counts(files)
         print(f"  {len(scores_df)} variants loaded")
+
+        # --- Fetch exon coords from Ensembl (aa_exon_df needed for heatmap) ---
+        cartoon_data = io.load_cartoon(files)
+        if cartoon_data is None:
+            print(f"[{gene}] Querying Ensembl for canonical transcript...")
+            try:
+                tx_info = io.get_canonical_transcript(gene, assembly=args.assembly)
+                canonical_flag = " [canonical]" if tx_info["is_canonical"] else " [longest coding]"
+                print(
+                    f"  Auto-selected: {tx_info['transcript_id']}"
+                    f"  ({tx_info['biotype']}, {tx_info['n_exons']} exons, "
+                    f"{tx_info['strand']}-strand){canonical_flag}"
+                )
+                raw = input(
+                    "  Press Enter to use this transcript, "
+                    "or enter a different Ensembl transcript ID: "
+                ).strip()
+                chosen_tx = raw if raw else None
+                cartoon_data = io.fetch_exon_coords(
+                    gene,
+                    transcript_id=chosen_tx,
+                    assembly=args.assembly,
+                    _raw_data=tx_info["_raw_data"],
+                )
+            except (ValueError, ConnectionError) as exc:
+                print(f"[{gene}] Could not fetch exon coords: {exc}")
+
+        aa_exon_df = None
+        inferred_protein_length = None
+        if cartoon_data is not None:
+            _exon_df, _, _meta_df = cartoon_data
+            try:
+                aa_exon_df, inferred_protein_length = io.exon_genomic_to_aa(_exon_df, _meta_df)
+            except Exception as exc:
+                print(f"[{gene}] Could not convert exon coords to AA positions: {exc}")
+
+        # --- Resolve protein length ---
+        # Priority: --protein-length flag > inferred from Ensembl CDS > interactive prompt
+        if args.protein_length is not None:
+            protein_length = args.protein_length
+        elif inferred_protein_length is not None:
+            protein_length = inferred_protein_length
+            print(f"  Protein length inferred from Ensembl CDS: {protein_length} aa")
+        else:
+            raw = input(f"  Protein length for {gene} (press Enter to estimate from data): ").strip()
+            protein_length = int(raw) if raw else None
 
         print(f"[{gene}] Generating figures (format: {fmt})")
 
@@ -172,8 +230,9 @@ def main():
                 aa_heatmap.make_plot(
                     scores_df, gene=gene, thresholds=thresholds,
                     domains_path=domains_path,
-                    protein_length=protein_lengths[gene],
+                    protein_length=protein_length,
                     px_per_aa=args.px_per_aa,
+                    aa_exon_df=aa_exon_df,
                 ),
                 args.output_dir / f"{gene}_aa_heatmap.{fmt}",
             )
@@ -215,21 +274,31 @@ def main():
         else:
             print(f"[{gene}] No allele frequency files found, skipping MAF figure.")
 
-        cartoon_data = io.load_cartoon(files)
+        targets_lib_df = io.load_targets(files)
+        if targets_lib_df is not None:
+            print(f"[{gene}] Targets file detected: {files['targets'].name} ({len(targets_lib_df)} amplicons)")
         if cartoon_data is not None:
-            exon_df, lib_df, meta_df = cartoon_data
+            exon_df, lib_df_cartoon, meta_df = cartoon_data
+            lib_df = targets_lib_df if targets_lib_df is not None else lib_df_cartoon
             if lib_df is not None and not lib_df.empty:
-                cartoon_chart = gene_cartoon.make_library_cartoon(exon_df, lib_df, meta_df)
+                cartoon_chart = gene_cartoon.make_library_cartoon(
+                    exon_df, lib_df, meta_df,
+                    exon_color=args.exon_color,
+                    lib_color=args.lib_color,
+                )
                 cartoon_name = f"{gene}_library_cartoon"
             else:
-                cartoon_chart = gene_cartoon.make_exon_cartoon(exon_df, meta_df)
+                cartoon_chart = gene_cartoon.make_exon_cartoon(
+                    exon_df, meta_df,
+                    exon_color=args.exon_color,
+                )
                 cartoon_name = f"{gene}_exon_cartoon"
             io.save_figure(
                 cartoon_chart,
                 args.output_dir / f"{cartoon_name}.{fmt}",
             )
         else:
-            print(f"[{gene}] No cartoon file found, skipping gene cartoon.")
+            print(f"[{gene}] No exon coordinates available, skipping gene cartoon.")
 
         edit_rates_df = io.load_edit_rates(files)
         if edit_rates_df is not None:

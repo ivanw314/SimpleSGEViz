@@ -1,4 +1,7 @@
 import fnmatch
+import json
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import altair as alt
@@ -68,7 +71,9 @@ def find_genes(input_dir: Path) -> dict:
             "domains": find_optional_icase(f"*{gene}*domain*", exclude=f"*cartoon*"),
             # Optional library edit rates file (*editrates*.tsv)
             "edit_rates": find_optional_icase(f"*{gene}*editrates*"),
-            # Optional gene cartoon file (Excel with exon_coords, metadata, and optionally lib_coords)
+            # Optional library targets file (TSV with editstart + editstop columns)
+            "targets": find_optional_icase(f"*{gene}*targets*"),
+            # Optional gene cartoon file (Excel with exon_coords, metadata; lib_coords sheet no longer needed)
             "cartoon": find_optional_icase(f"*{gene}*cartoon*"),
             # Optional VEP output file (Excel .xlsx or tab-delimited .txt) for predictor scores
             "vep": find_optional_icase(f"*{gene}*vep*"),
@@ -127,6 +132,211 @@ def load_cartoon(files: dict):
     lib_df = xl.parse("lib_coords") if "lib_coords" in xl.sheet_names else None
     meta_df = xl.parse("metadata")
     return exon_df, lib_df, meta_df
+
+
+_SPECIES_MAP = {
+    "human": "homo_sapiens",
+    "mouse": "mus_musculus",
+    "rat": "rattus_norvegicus",
+    "zebrafish": "danio_rerio",
+    "fly": "drosophila_melanogaster",
+    "worm": "caenorhabditis_elegans",
+    "yeast": "saccharomyces_cerevisiae",
+}
+
+
+def _fetch_gene_data(gene_symbol: str, species: str, assembly: str) -> dict:
+    """Fetch raw gene data from the Ensembl REST API (internal helper)."""
+    ens_species = _SPECIES_MAP.get(species.lower(), species.lower())
+    base_url = (
+        "https://grch37.rest.ensembl.org"
+        if assembly.upper() == "GRCH37"
+        else "https://rest.ensembl.org"
+    )
+    url = (
+        f"{base_url}/lookup/symbol/{ens_species}/{gene_symbol}"
+        "?expand=1&content-type=application/json"
+    )
+    try:
+        with urllib.request.urlopen(url, timeout=30) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        raise ValueError(
+            f"Ensembl REST API returned HTTP {e.code} for gene '{gene_symbol}'. "
+            "Check that the gene symbol and species are correct."
+        ) from e
+    except urllib.error.URLError as e:
+        raise ConnectionError(
+            f"Could not reach Ensembl REST API: {e.reason}. "
+            "Check your internet connection."
+        ) from e
+
+
+def _select_transcript(data: dict, gene_symbol: str, transcript_id: str | None):
+    """Pick a transcript dict from raw Ensembl gene data (internal helper)."""
+    transcripts = data.get("Transcript", [])
+    if not transcripts:
+        raise ValueError(f"No transcripts found for gene '{gene_symbol}'.")
+    if transcript_id is not None:
+        tx = next((t for t in transcripts if t["id"] == transcript_id), None)
+        if tx is None:
+            available = [t["id"] for t in transcripts]
+            raise ValueError(
+                f"Transcript '{transcript_id}' not found for '{gene_symbol}'. "
+                f"Available: {available}"
+            )
+        return tx
+    canonical = [t for t in transcripts if t.get("is_canonical") == 1]
+    return canonical[0] if canonical else max(
+        transcripts,
+        key=lambda t: (t.get("Translation") is not None, t.get("length", 0)),
+    )
+
+
+def get_canonical_transcript(
+    gene_symbol: str,
+    species: str = "human",
+    assembly: str = "GRCh38",
+) -> dict:
+    """Return a summary dict for the canonical transcript of a gene.
+
+    Fetches from the Ensembl REST API and returns a dict with keys:
+
+    - ``transcript_id``: Ensembl transcript ID (e.g. ``"ENST00000357654"``)
+    - ``biotype``: transcript biotype (e.g. ``"protein_coding"``)
+    - ``n_exons``: number of exons
+    - ``is_canonical``: whether Ensembl marks this as the canonical transcript
+    - ``strand``: ``"plus"`` or ``"minus"``
+
+    Useful for presenting the auto-selected transcript to a user before
+    calling :func:`fetch_exon_coords`.
+    """
+    data = _fetch_gene_data(gene_symbol, species, assembly)
+    tx = _select_transcript(data, gene_symbol, transcript_id=None)
+    return {
+        "transcript_id": tx["id"],
+        "biotype": tx.get("biotype", "unknown"),
+        "n_exons": len(tx.get("Exon", [])),
+        "is_canonical": bool(tx.get("is_canonical") == 1),
+        "strand": "minus" if data["strand"] == -1 else "plus",
+        "_raw_data": data,  # passed through to avoid a second API call
+    }
+
+
+def fetch_exon_coords(
+    gene_symbol: str,
+    transcript_id: str | None = None,
+    species: str = "human",
+    assembly: str = "GRCh38",
+    _raw_data: dict | None = None,
+) -> tuple[pd.DataFrame, None, pd.DataFrame]:
+    """Fetch exon coordinates for a gene from the Ensembl REST API.
+
+    Returns ``(exon_df, None, meta_df)`` matching the ``load_cartoon()`` output
+    format, so the result can be passed directly to
+    ``gene_cartoon.make_exon_cartoon()``.
+
+    Args:
+        gene_symbol: HGNC gene symbol (e.g. ``"BRCA1"``).
+        transcript_id: Ensembl transcript ID to use. If ``None``, the canonical
+            transcript is selected automatically.
+        species: Common name (e.g. ``"human"``) or Ensembl species name (e.g.
+            ``"homo_sapiens"``). Defaults to ``"human"``.
+        assembly: Genome assembly — ``"GRCh38"`` (default) or ``"GRCh37"``.
+    """
+    data = _raw_data or _fetch_gene_data(gene_symbol, species, assembly)
+    tx = _select_transcript(data, gene_symbol, transcript_id)
+    strand = "minus" if data["strand"] == -1 else "plus"
+
+    # Sort in transcription order (5'→3') so X1 is always the first exon.
+    # Plus-strand: ascending genomic start; minus-strand: descending genomic start.
+    exons = sorted(tx.get("Exon", []), key=lambda e: e["start"], reverse=(strand == "minus"))
+    exon_df = pd.DataFrame([
+        {"exon": f"X{i + 1}", "start": e["start"], "end": e["end"]}
+        for i, e in enumerate(exons)
+    ])
+
+    translation = tx.get("Translation")
+    if translation is not None:
+        atg_pos = translation["end"] if strand == "minus" else translation["start"]
+        stop_pos = translation["start"] if strand == "minus" else translation["end"]
+    else:
+        atg_pos = int(exon_df["start"].min())
+        stop_pos = int(exon_df["end"].max())
+
+    meta_df = pd.DataFrame([
+        {"type": "strand", "info": strand},
+        {"type": "atg",    "info": atg_pos},
+        {"type": "stop",   "info": stop_pos},
+    ])
+
+    print(
+        f"  Fetched {len(exon_df)} exons for {gene_symbol} "
+        f"({tx['id']}, {strand}-strand, {assembly})"
+    )
+    return exon_df, None, meta_df
+
+
+def exon_genomic_to_aa(
+    exon_df: pd.DataFrame,
+    meta_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """Convert genomic exon coordinates to amino acid residue positions.
+
+    Walks exons in transcription order, computes each exon's CDS overlap
+    using the ATG and stop positions in ``meta_df``, and accumulates CDS
+    bases to derive per-exon amino acid boundaries.
+
+    Returns a DataFrame with columns ``aa_start`` and ``aa_end`` suitable
+    for the exon track in ``aa_heatmap.make_plot()``.  Purely UTR exons
+    (no CDS overlap) are omitted.
+    """
+    meta = dict(zip(meta_df["type"].str.lower(), meta_df["info"].astype(str).str.strip()))
+    strand = meta.get("strand", "plus").lower()
+    atg_pos = int(float(meta["atg"]))
+    stop_pos = int(float(meta["stop"]))
+
+    cds_lo = min(atg_pos, stop_pos)
+    cds_hi = max(atg_pos, stop_pos)
+
+    exons = exon_df.sort_values("start", ascending=(strand != "minus"))
+
+    aa_exons = []
+    cds_bases_so_far = 0
+    for exon_num, (_, exon) in enumerate(exons.iterrows(), start=1):
+        ov_start = max(int(exon["start"]), cds_lo)
+        ov_end = min(int(exon["end"]), cds_hi)
+        # Ensembl uses 1-based fully-closed intervals, so bases = end - start + 1
+        cds_bases = max(0, ov_end - ov_start + 1)
+        if cds_bases > 0:
+            aa_exons.append({
+                "exon_num": exon_num,
+                "aa_start": round(cds_bases_so_far / 3 + 1, 2),
+                "aa_end":   round((cds_bases_so_far + cds_bases) / 3 + 1, 2),
+            })
+            cds_bases_so_far += cds_bases
+
+    # Subtract 3 bases for the stop codon (included in Ensembl Translation coordinates)
+    # before converting to amino acid count.
+    protein_length = max(0, cds_bases_so_far - 3) // 3
+    return pd.DataFrame(aa_exons, columns=["exon_num", "aa_start", "aa_end"]), protein_length
+
+
+def load_targets(files: dict) -> "pd.DataFrame | None":
+    """Load a library targets TSV file if present.
+
+    Expected columns (at minimum): ``editstart``, ``editstop``.
+    Returns a DataFrame with ``start`` and ``end`` columns (genomic coordinates)
+    matching the ``lib_df`` format expected by ``gene_cartoon.make_library_cartoon()``,
+    or ``None`` if no targets file was detected.
+    """
+    path = files.get("targets")
+    if path is None:
+        return None
+    df = pd.read_csv(path, sep="\t")
+    return df[["editstart", "editstop"]].rename(
+        columns={"editstart": "start", "editstop": "end"}
+    )
 
 
 def load_edit_rates(files: dict):
