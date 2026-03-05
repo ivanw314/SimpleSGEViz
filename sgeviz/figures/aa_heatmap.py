@@ -362,6 +362,7 @@ def make_plot(
     )
     snv_df = snv_df.dropna(subset=["AApos"])
     snv_df["AApos"] = snv_df["AApos"].astype(int)
+    snv_df = snv_df.loc[snv_df["og_AA"] != "*"]
 
     if "max_SpliceAI" in snv_df.columns:
         snv_df = snv_df.loc[snv_df["max_SpliceAI"] <= 0.2]
