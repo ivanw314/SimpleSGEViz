@@ -110,20 +110,13 @@ def _load_domains(path, prot_length: int) -> pd.DataFrame:
     return pd.DataFrame(segments)
 
 
-def _load_exons(path) -> pd.DataFrame | None:
-    """Load exon boundaries from the 'exons' sheet of a domains Excel file.
 
-    Expected columns: aa_start, aa_end (fractional amino acid positions).
-    Labels are assigned sequentially (1, 2, 3, …).
-    Returns None if the file is not Excel or has no 'exons' sheet.
-    """
-    suffix = Path(path).suffix.lower()
-    if suffix not in (".xlsx", ".xls"):
+def _prep_aa_exon_df(aa_exon_df: "pd.DataFrame | None") -> "pd.DataFrame | None":
+    """Convert aa_start/aa_end columns to the start/end/label/center format
+    expected by _make_exon_cartoon. Returns None if input is None."""
+    if aa_exon_df is None or aa_exon_df.empty:
         return None
-    xl = pd.ExcelFile(path)
-    if "exons" not in xl.sheet_names:
-        return None
-    df = xl.parse("exons").rename(columns={"aa_start": "start", "aa_end": "end"})
+    df = aa_exon_df.rename(columns={"aa_start": "start", "aa_end": "end"}).copy()
     df["label"] = [str(i + 1) for i in range(len(df))]
     df["center"] = (df["start"] + df["end"]) / 2
     return df[["start", "end", "label", "center"]]
@@ -478,14 +471,14 @@ def make_plot(
     if domains_path is not None:
         segments_df = _load_domains(domains_path, prot_length)
         domain_chart = _make_domain_cartoon(segments_df, prot_length, width)
-        exon_df = _load_exons(domains_path) or aa_exon_df
+        exon_df = _prep_aa_exon_df(aa_exon_df)
         if exon_df is not None:
             exon_chart = _make_exon_cartoon(exon_df, prot_length, width)
             panels.append(alt.vconcat(domain_chart, exon_chart, spacing=0))
         else:
             panels.append(domain_chart)
     elif aa_exon_df is not None:
-        panels.append(_make_exon_cartoon(aa_exon_df, prot_length, width))
+        panels.append(_make_exon_cartoon(_prep_aa_exon_df(aa_exon_df), prot_length, width))
 
     has_del = (
         "var_type" in df.columns
