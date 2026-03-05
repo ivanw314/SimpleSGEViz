@@ -169,7 +169,6 @@ def _gv(pos: float, segments: list[dict]) -> float:
 def _make_exon_track(
     exon_segs: list[dict],
     utr_segs: list[dict],
-    intron_segs: list[dict],
     segments: list[dict],
     total_vw: float,
     atg_pos: int,
@@ -256,7 +255,11 @@ def _make_exon_track(
             exon_vspan[name][0] = min(exon_vspan[name][0], s["vstart"])
             exon_vspan[name][1] = max(exon_vspan[name][1], s["vend"])
     label_df = pd.DataFrame([
-        {"center": (span[0] + span[1]) / 2, "label": name}
+        {
+            "center": (span[0] + span[1]) / 2,
+            # Strip a leading "X" from auto-generated names like "X1" → "1"
+            "label": name[1:] if name[:1] == "X" and name[1:].isdigit() else name,
+        }
         for name, span in sorted(exon_vspan.items(), key=lambda kv: kv[1][0])
     ])
     layers.append(_base(
@@ -279,21 +282,7 @@ def _make_exon_track(
         )
     ))
 
-    # 5. Intron '//' break marks
-    if intron_segs:
-        intron_df = pd.DataFrame({
-            "x": [(s["vstart"] + s["vend"]) / 2 for s in intron_segs]
-        })
-        layers.append(_base(
-            alt.Chart(intron_df)
-            .mark_text(text="//", fontSize=fontsize, color="black", baseline="middle")
-            .encode(
-                x=alt.X("x:Q", scale=x_scale, axis=None),
-                y=alt.value(BACKBONE_Y),
-            )
-        ))
-
-    # 6. ATG / Stop: text label above, then triangle pointing down
+    # 5. ATG / Stop: text label above, then triangle pointing down
     atg_vx = _gv(atg_pos, segments)
     stop_vx = _gv(stop_pos, segments)
     marker_df = pd.DataFrame({
@@ -575,6 +564,7 @@ def make_exon_cartoon(
     utr_min_vw: float = 15.0,
     utr_max_vw: float = 50.0,
     fontsize: int = 16,
+    exon_color: str | None = None,
 ) -> alt.Chart:
     """Draw a scalable exon-structure cartoon with compressed introns and UTRs.
 
@@ -605,6 +595,8 @@ def make_exon_cartoon(
             scale relative to this value.
     """
     meta = _parse_meta(metadata_df, exon_df)
+    if exon_color is not None:
+        meta["exon_color"] = exon_color
     exon_df_vgc, _, atg_vgc, stop_vgc = _apply_strand(
         exon_df, None, meta["atg_pos"], meta["stop_pos"], meta["strand"]
     )
@@ -616,12 +608,12 @@ def make_exon_cartoon(
     )
     exon_segs = [s for s in segments if s["kind"] == "exon"]
     utr_segs = [s for s in segments if s["kind"] == "utr"]
-    intron_segs = [s for s in segments if s["kind"] == "intron"]
+
     x_scale = alt.Scale(domain=[-_LEFT_MARGIN, total_vw])
     chart_width = width + _LEFT_MARGIN
 
     track = _make_exon_track(
-        exon_segs, utr_segs, intron_segs, segments, total_vw,
+        exon_segs, utr_segs, segments, total_vw,
         atg_vgc, stop_vgc,
         x_scale, chart_width, meta["exon_color"], fontsize,
     )
@@ -642,6 +634,8 @@ def make_library_cartoon(
     utr_min_vw: float = 15.0,
     utr_max_vw: float = 50.0,
     fontsize: int = 16,
+    exon_color: str | None = None,
+    lib_color: str | None = None,
 ) -> alt.Chart:
     """Draw an exon-structure cartoon with a library-amplicon track below.
 
@@ -666,6 +660,10 @@ def make_library_cartoon(
             scale relative to this value.
     """
     meta = _parse_meta(metadata_df, exon_df)
+    if exon_color is not None:
+        meta["exon_color"] = exon_color
+    if lib_color is not None:
+        meta["lib_color"] = lib_color
     exon_df_vgc, lib_df_vgc, atg_vgc, stop_vgc = _apply_strand(
         exon_df, lib_df, meta["atg_pos"], meta["stop_pos"], meta["strand"]
     )
@@ -677,12 +675,12 @@ def make_library_cartoon(
     )
     exon_segs = [s for s in segments if s["kind"] == "exon"]
     utr_segs = [s for s in segments if s["kind"] == "utr"]
-    intron_segs = [s for s in segments if s["kind"] == "intron"]
+
     x_scale = alt.Scale(domain=[-_LEFT_MARGIN, total_vw])
     chart_width = width + _LEFT_MARGIN
 
     exon_track = _make_exon_track(
-        exon_segs, utr_segs, intron_segs, segments, total_vw,
+        exon_segs, utr_segs, segments, total_vw,
         atg_vgc, stop_vgc,
         x_scale, chart_width, meta["exon_color"], fontsize,
     )

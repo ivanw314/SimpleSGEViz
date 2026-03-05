@@ -114,6 +114,22 @@ def parse_args():
         help="Genome assembly for Ensembl coordinate fetching (default: GRCh38). "
              "Only used with --fetch-coords.",
     )
+    parser.add_argument(
+        "--exon-color",
+        type=str,
+        default=None,
+        metavar="HEX",
+        help="Override exon color in gene cartoons (e.g. '#2E86C1'). "
+             "Defaults to the value in the cartoon metadata file, or '#2E86C1'.",
+    )
+    parser.add_argument(
+        "--lib-color",
+        type=str,
+        default=None,
+        metavar="HEX",
+        help="Override library amplicon color in gene cartoons (e.g. '#888888'). "
+             "Defaults to the value in the cartoon metadata file, or '#888888'.",
+    )
     return parser.parse_args()
 
 
@@ -273,10 +289,17 @@ def main():
             exon_df, lib_df_cartoon, meta_df = cartoon_data
             lib_df = targets_lib_df if targets_lib_df is not None else lib_df_cartoon
             if lib_df is not None and not lib_df.empty:
-                cartoon_chart = gene_cartoon.make_library_cartoon(exon_df, lib_df, meta_df)
+                cartoon_chart = gene_cartoon.make_library_cartoon(
+                    exon_df, lib_df, meta_df,
+                    exon_color=args.exon_color,
+                    lib_color=args.lib_color,
+                )
                 cartoon_name = f"{gene}_library_cartoon"
             else:
-                cartoon_chart = gene_cartoon.make_exon_cartoon(exon_df, meta_df)
+                cartoon_chart = gene_cartoon.make_exon_cartoon(
+                    exon_df, meta_df,
+                    exon_color=args.exon_color,
+                )
                 cartoon_name = f"{gene}_exon_cartoon"
             io.save_figure(
                 cartoon_chart,
