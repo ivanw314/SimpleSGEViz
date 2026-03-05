@@ -72,21 +72,22 @@ def _load_domains(path, prot_length: int) -> pd.DataFrame:
             segments.append({"start": pos, "end": row["start"], "label": "", "color": "#CCCCCC", "tier": 0})
         segments.append({
             "start": row["start"],
-            "end": row["end"],
+            "end": row["end"] + 1,
             "label": row["region_name"],
             "color": row["color"],
             "tier": 0,
         })
-        pos = row["end"]
+        pos = row["end"] + 1
     if pos <= prot_length:
         segments.append({"start": pos, "end": prot_length + 1, "label": "", "color": "#CCCCCC", "tier": 0})
 
     # Insert tier-1 sub-features by splitting any overlapping parent segment
     tier1 = raw.loc[raw["tier"] == 1].sort_values("start").reset_index(drop=True)
     for _, sub in tier1.iterrows():
+        sub_end = sub["end"] + 1  # convert inclusive end to exclusive
         new_segs = []
         for seg in segments:
-            if sub["start"] >= seg["end"] or sub["end"] <= seg["start"]:
+            if sub["start"] >= seg["end"] or sub_end <= seg["start"]:
                 new_segs.append(seg)
                 continue
             # Split: piece before sub-feature
@@ -96,14 +97,14 @@ def _load_domains(path, prot_length: int) -> pd.DataFrame:
             # The sub-feature itself (clipped to parent bounds)
             new_segs.append({
                 "start": max(seg["start"], sub["start"]),
-                "end": min(seg["end"], sub["end"]),
+                "end": min(seg["end"], sub_end),
                 "label": sub["region_name"],
                 "color": sub["color"],
                 "tier": 1,
             })
             # Piece after sub-feature
-            if seg["end"] > sub["end"]:
-                new_segs.append({"start": sub["end"], "end": seg["end"],
+            if seg["end"] > sub_end:
+                new_segs.append({"start": sub_end, "end": seg["end"],
                                  "label": seg["label"], "color": seg["color"], "tier": seg["tier"]})
         segments = new_segs
 
