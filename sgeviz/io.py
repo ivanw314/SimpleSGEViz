@@ -71,7 +71,9 @@ def find_genes(input_dir: Path) -> dict:
             "domains": find_optional_icase(f"*{gene}*domain*", exclude=f"*cartoon*"),
             # Optional library edit rates file (*editrates*.tsv)
             "edit_rates": find_optional_icase(f"*{gene}*editrates*"),
-            # Optional gene cartoon file (Excel with exon_coords, metadata, and optionally lib_coords)
+            # Optional library targets file (TSV with editstart + editstop columns)
+            "targets": find_optional_icase(f"*{gene}*targets*"),
+            # Optional gene cartoon file (Excel with exon_coords, metadata; lib_coords sheet no longer needed)
             "cartoon": find_optional_icase(f"*{gene}*cartoon*"),
             # Optional VEP output file (Excel .xlsx or tab-delimited .txt) for predictor scores
             "vep": find_optional_icase(f"*{gene}*vep*"),
@@ -311,6 +313,23 @@ def exon_genomic_to_aa(
             cds_bases_so_far += cds_bases
 
     return pd.DataFrame(aa_exons, columns=["aa_start", "aa_end"])
+
+
+def load_targets(files: dict) -> "pd.DataFrame | None":
+    """Load a library targets TSV file if present.
+
+    Expected columns (at minimum): ``editstart``, ``editstop``.
+    Returns a DataFrame with ``start`` and ``end`` columns (genomic coordinates)
+    matching the ``lib_df`` format expected by ``gene_cartoon.make_library_cartoon()``,
+    or ``None`` if no targets file was detected.
+    """
+    path = files.get("targets")
+    if path is None:
+        return None
+    df = pd.read_csv(path, sep="\t")
+    return df[["editstart", "editstop"]].rename(
+        columns={"editstart": "start", "editstop": "end"}
+    )
 
 
 def load_edit_rates(files: dict):

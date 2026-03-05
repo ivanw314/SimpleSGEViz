@@ -13,7 +13,8 @@ Optional (figures generated only if detected):
     *{gene}*gnomAD*     gnomAD allele frequencies (CSV or Excel)
     *{gene}*Regeneron*  Regeneron allele frequencies (CSV or Excel)
     *{gene}*editrates*  Library edit rates (TSV with target_rep + edit_rate columns)
-    *{gene}*cartoon*    Gene cartoon Excel file (sheets: exon_coords, metadata, optionally lib_coords)
+    *{gene}*targets*    Library targets TSV (columns: editstart, editstop; used as library amplicons)
+    *{gene}*cartoon*    Gene cartoon Excel file (sheets: exon_coords, metadata)
     *{gene}*vep*        VEP Excel output (.xlsx) with AlphaMissense, REVEL, CADD, SpliceAI scores
 
 Outputs (saved to output_dir):
@@ -265,8 +266,12 @@ def main():
         else:
             print(f"[{gene}] No allele frequency files found, skipping MAF figure.")
 
+        targets_lib_df = io.load_targets(files)
+        if targets_lib_df is not None:
+            print(f"[{gene}] Targets file detected: {files['targets'].name} ({len(targets_lib_df)} amplicons)")
         if cartoon_data is not None:
-            exon_df, lib_df, meta_df = cartoon_data
+            exon_df, lib_df_cartoon, meta_df = cartoon_data
+            lib_df = targets_lib_df if targets_lib_df is not None else lib_df_cartoon
             if lib_df is not None and not lib_df.empty:
                 cartoon_chart = gene_cartoon.make_library_cartoon(exon_df, lib_df, meta_df)
                 cartoon_name = f"{gene}_library_cartoon"
